@@ -2,8 +2,16 @@ import { readFile, stat } from 'fs/promises';
 import { resolve, relative, basename, extname } from 'path';
 import { createHash } from 'crypto';
 import { IngestManager, IngestResult } from './ingest.js';
+import { 
+  createExtractor, 
+  getContentType, 
+  ParseError, 
+  EncryptedPdfError, 
+  TooLargeError,
+  type ExtractionOptions 
+} from './extractors.js';
 
-export interface FileIngestOptions {
+export interface FileIngestOptions extends ExtractionOptions {
   watchDir?: string;
   supportedExtensions?: string[];
   ignorePatterns?: string[];
@@ -23,7 +31,7 @@ export class FileIngestManager {
     this.ingestManager = ingestManager;
     this.options = {
       watchDir: options.watchDir || './kb',
-      supportedExtensions: options.supportedExtensions || ['.md', '.txt'],
+      supportedExtensions: options.supportedExtensions || ['.md', '.txt', '.pdf', '.docx'],
       ignorePatterns: options.ignorePatterns || [
         '~$*',      // Temp files
         '*.tmp',    // Temp files
@@ -33,7 +41,13 @@ export class FileIngestManager {
         '.git/**',   // Git files
         'node_modules/**', // Node modules
       ],
-      maxFileSize: options.maxFileSize || 50 * 1024 * 1024 // 50MB
+      maxFileSize: options.maxFileSize || 50 * 1024 * 1024, // 50MB
+      // PDF options
+      pdfMaxPages: options.pdfMaxPages || parseInt(process.env.PDF_MAX_PAGES || '300'),
+      pdfMinTextChars: options.pdfMinTextChars || parseInt(process.env.PDF_MIN_TEXT_CHARS || '500'),
+      // DOCX options  
+      docMaxBytes: options.docMaxBytes || parseInt(process.env.DOC_MAX_BYTES || '10000000'),
+      docxSplitOnHeadings: options.docxSplitOnHeadings || (process.env.DOCX_SPLIT_ON_HEADINGS === 'true')
     };
   }
 
@@ -52,40 +66,106 @@ export class FileIngestManager {
         };
       }
 
-      // Read file content
-      const content = await this.readFileContent(absolutePath);
-      if (!content) {
-        return {
-          filePath: absolutePath,
-          doc_id: '',
-          chunks: 0,
-          status: 'skipped',
-          error: 'Empty file content'
-        };
-      }
-
       // Extract file metadata
       const fileStats = await stat(absolutePath);
       const fileName = basename(absolutePath);
-      const title = this.extractTitle(fileName, content);
       const uri = `file://${absolutePath}`;
       const externalId = this.normalizeFilePath(absolutePath);
+      const contentType = getContentType(absolutePath);
+      const ext = extname(absolutePath).toLowerCase();
 
-      // Ingest the document
-      const result = await this.ingestManager.ingestSingle({
-        text: content,
+      let ingestDoc: any = {
         external_id: externalId,
-        title,
+        title: fileName,
         source: 'file',
         uri,
+        content_type: contentType,
+        size_bytes: fileStats.size,
+        mtime: fileStats.mtime.toISOString(),
         metadata: {
           fileName,
           filePath: absolutePath,
           fileSize: fileStats.size,
           lastModified: fileStats.mtime.toISOString(),
-          extension: extname(absolutePath)
+          extension: ext
         }
-      });
+      };
+
+      // Handle different file types
+      if (ext === '.pdf' || ext === '.docx') {
+        // Use extractors for PDF and DOCX
+        const extractor = createExtractor(absolutePath, this.options);
+        if (!extractor) {
+          return {
+            filePath: absolutePath,
+            doc_id: '',
+            chunks: 0,
+            status: 'skipped',
+            error: 'No extractor available for file type'
+          };
+        }
+
+        try {
+          const docId = this.generateTempDocId(externalId);
+          const extractionResult = await extractor.extract(absolutePath, docId);
+          
+          // Update document with extraction results
+          ingestDoc.segments = extractionResult.segments;
+          ingestDoc.ingest_status = 'ok';
+          ingestDoc.title = this.extractTitle(fileName, extractionResult.totalText);
+          
+          // Add extraction metadata
+          ingestDoc.metadata = {
+            ...ingestDoc.metadata,
+            ...extractionResult.metadata
+          };
+
+        } catch (error) {
+          // Handle extraction errors
+          if (error instanceof TooLargeError) {
+            ingestDoc.ingest_status = 'too_large';
+            ingestDoc.notes = error.message;
+          } else if (error instanceof EncryptedPdfError) {
+            ingestDoc.ingest_status = 'skipped';
+            ingestDoc.notes = 'encrypted';
+          } else if (error instanceof ParseError && error.message.includes('needs OCR')) {
+            ingestDoc.ingest_status = 'needs_ocr';
+            ingestDoc.notes = error.message;
+          } else {
+            ingestDoc.ingest_status = 'error';
+            ingestDoc.notes = error instanceof Error ? error.message.substring(0, 200) : 'Unknown error';
+          }
+
+          // For non-OK statuses, we still create a document record but skip processing
+          if (ingestDoc.ingest_status !== 'ok') {
+            const result = await this.ingestManager.ingestSingle(ingestDoc);
+            return {
+              ...result,
+              filePath: absolutePath,
+              error: ingestDoc.notes
+            };
+          }
+        }
+      } else {
+        // Handle text files (MD, TXT) as before
+        const content = await this.readFileContent(absolutePath);
+        if (!content) {
+          return {
+            filePath: absolutePath,
+            doc_id: '',
+            chunks: 0,
+            status: 'skipped',
+            error: 'Empty file content'
+          };
+        }
+
+        ingestDoc.text = content;
+        ingestDoc.title = this.extractTitle(fileName, content);
+        ingestDoc.ingest_status = 'ok';
+      }
+
+      // Ingest the document
+      const result = await this.ingestManager.ingestSingle(ingestDoc);
 
       return {
         ...result,
@@ -102,6 +182,10 @@ export class FileIngestManager {
         error: error instanceof Error ? error.message : 'Unknown error'
       };
     }
+  }
+
+  private generateTempDocId(externalId: string): string {
+    return `doc_${createHash('sha256').update(externalId).digest('hex').substring(0, 16)}`;
   }
 
   async ingestDirectory(dirPath: string): Promise<FileIngestResult[]> {

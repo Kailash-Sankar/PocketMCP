@@ -10,29 +10,43 @@ export interface Document {
   source: 'file' | 'url' | 'raw';
   uri: string;
   title: string;
+  content_type: string;
+  size_bytes: number;
   content_sha256: string;
+  mtime: string;
+  ingest_status: 'ok' | 'skipped' | 'needs_ocr' | 'too_large' | 'error';
+  notes?: string;
   created_at: string;
   updated_at: string;
 }
 
+export interface Segment {
+  segment_id: string;
+  doc_id: string;
+  kind: 'page' | 'section';
+  page?: number;
+  meta?: Record<string, any>;
+  text: string;
+}
+
 export interface VecChunk {
   chunk_id: string;
-  doc_id: string;
-  idx: number;
-  start_off: number;
-  end_off: number;
+  segment_id: string;
+  start_char: number;
+  end_char: number;
   text: string;
   embedding: Float32Array;
 }
 
 export interface SearchResult {
   chunk_id: string;
+  segment_id: string;
   doc_id: string;
-  idx: number;
   score: number;
   preview: string;
   text: string;
   title?: string;
+  source_badge?: string;
 }
 
 export class DatabaseManager {
@@ -82,15 +96,35 @@ export class DatabaseManager {
         source TEXT NOT NULL,
         uri TEXT NOT NULL,
         title TEXT NOT NULL,
+        content_type TEXT NOT NULL,
+        size_bytes INTEGER NOT NULL,
         content_sha256 TEXT NOT NULL,
+        mtime TEXT NOT NULL,
+        ingest_status TEXT NOT NULL DEFAULT 'ok',
+        notes TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
     `);
 
-    // Create index on external_id for fast lookups
+    // Create segments table
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS segments (
+        segment_id TEXT PRIMARY KEY,
+        doc_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        page INTEGER,
+        meta TEXT,
+        text TEXT NOT NULL,
+        FOREIGN KEY (doc_id) REFERENCES documents(doc_id) ON DELETE CASCADE
+      );
+    `);
+
+    // Create indexes
     this.db.exec(`
       CREATE INDEX IF NOT EXISTS idx_documents_external_id ON documents(external_id);
+      CREATE INDEX IF NOT EXISTS idx_documents_status ON documents(ingest_status);
+      CREATE INDEX IF NOT EXISTS idx_segments_doc_id ON segments(doc_id);
     `);
 
     // For now, use regular table until we properly configure vec0
@@ -99,22 +133,23 @@ export class DatabaseManager {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS vec_chunks (
         chunk_id TEXT PRIMARY KEY,
-        doc_id TEXT,
-        idx INTEGER,
-        start_off INTEGER,
-        end_off INTEGER,
+        segment_id TEXT NOT NULL,
+        start_char INTEGER NOT NULL,
+        end_char INTEGER NOT NULL,
         embedding TEXT,
-        text TEXT
+        text TEXT NOT NULL,
+        FOREIGN KEY (segment_id) REFERENCES segments(segment_id) ON DELETE CASCADE
       );
     `);
     this.useVectorTable = false;
 
-    // Create index on doc_id for fast deletions (only for regular tables)
+    // Create index on segment_id for fast deletions (only for regular tables)
     if (!this.useVectorTable) {
       this.db.exec(`
-        CREATE INDEX IF NOT EXISTS idx_vec_chunks_doc_id ON vec_chunks(doc_id);
+        CREATE INDEX IF NOT EXISTS idx_vec_chunks_segment_id ON vec_chunks(segment_id);
       `);
     }
+
   }
 
   // Document operations
@@ -128,8 +163,8 @@ export class DatabaseManager {
 
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO documents 
-      (doc_id, external_id, source, uri, title, content_sha256, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      (doc_id, external_id, source, uri, title, content_type, size_bytes, content_sha256, mtime, ingest_status, notes, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
@@ -138,7 +173,12 @@ export class DatabaseManager {
       fullDoc.source,
       fullDoc.uri,
       fullDoc.title,
+      fullDoc.content_type,
+      fullDoc.size_bytes,
       fullDoc.content_sha256,
+      fullDoc.mtime,
+      fullDoc.ingest_status,
+      fullDoc.notes || null,
       fullDoc.created_at,
       fullDoc.updated_at
     );
@@ -158,13 +198,27 @@ export class DatabaseManager {
 
   deleteDocument(docId: string): { deletedChunks: number } {
     const transaction = this.db.transaction(() => {
-      // Count chunks before deletion
-      const countStmt = this.db.prepare('SELECT COUNT(*) as count FROM vec_chunks WHERE doc_id = ?');
+      // Count chunks before deletion (via segments)
+      const countStmt = this.db.prepare(`
+        SELECT COUNT(*) as count 
+        FROM vec_chunks vc 
+        JOIN segments s ON vc.segment_id = s.segment_id 
+        WHERE s.doc_id = ?
+      `);
       const { count } = countStmt.get(docId) as { count: number };
 
-      // Delete chunks
-      const deleteChunksStmt = this.db.prepare('DELETE FROM vec_chunks WHERE doc_id = ?');
+      // Delete chunks (will cascade from segments)
+      const deleteChunksStmt = this.db.prepare(`
+        DELETE FROM vec_chunks 
+        WHERE segment_id IN (
+          SELECT segment_id FROM segments WHERE doc_id = ?
+        )
+      `);
       deleteChunksStmt.run(docId);
+
+      // Delete segments
+      const deleteSegmentsStmt = this.db.prepare('DELETE FROM segments WHERE doc_id = ?');
+      deleteSegmentsStmt.run(docId);
 
       // Delete document
       const deleteDocStmt = this.db.prepare('DELETE FROM documents WHERE doc_id = ?');
@@ -174,6 +228,67 @@ export class DatabaseManager {
     });
 
     return transaction();
+  }
+
+  // Segment operations
+  upsertSegment(segment: Segment): void {
+    const stmt = this.db.prepare(`
+      INSERT OR REPLACE INTO segments 
+      (segment_id, doc_id, kind, page, meta, text)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+
+    stmt.run(
+      segment.segment_id,
+      segment.doc_id,
+      segment.kind,
+      segment.page || null,
+      segment.meta ? JSON.stringify(segment.meta) : null,
+      segment.text
+    );
+  }
+
+  getSegmentsByDocId(docId: string): Segment[] {
+    const stmt = this.db.prepare('SELECT * FROM segments WHERE doc_id = ? ORDER BY segment_id');
+    const results = stmt.all(docId) as any[];
+    
+    return results.map(row => ({
+      ...row,
+      meta: row.meta ? JSON.parse(row.meta) : undefined
+    }));
+  }
+
+  replaceDocumentSegments(docId: string, segments: Segment[]): void {
+    const transaction = this.db.transaction(() => {
+      // Delete existing segments and their chunks
+      this.db.prepare(`
+        DELETE FROM vec_chunks 
+        WHERE segment_id IN (
+          SELECT segment_id FROM segments WHERE doc_id = ?
+        )
+      `).run(docId);
+      
+      this.db.prepare('DELETE FROM segments WHERE doc_id = ?').run(docId);
+
+      // Insert new segments
+      const insertStmt = this.db.prepare(`
+        INSERT INTO segments (segment_id, doc_id, kind, page, meta, text)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `);
+
+      for (const segment of segments) {
+        insertStmt.run(
+          segment.segment_id,
+          segment.doc_id,
+          segment.kind,
+          segment.page || null,
+          segment.meta ? JSON.stringify(segment.meta) : null,
+          segment.text
+        );
+      }
+    });
+
+    transaction();
   }
 
   listDocuments(limit: number = 50, offset: number = 0): Document[] {
@@ -189,22 +304,22 @@ export class DatabaseManager {
   insertChunks(chunks: Omit<VecChunk, 'chunk_id'>[]): void {
     const transaction = this.db.transaction(() => {
       const stmt = this.db.prepare(`
-        INSERT INTO vec_chunks (chunk_id, doc_id, idx, start_off, end_off, embedding, text)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO vec_chunks (chunk_id, segment_id, start_char, end_char, embedding, text)
+        VALUES (?, ?, ?, ?, ?, ?)
       `);
 
-      for (const chunk of chunks) {
-        const chunkId = `${chunk.doc_id}_${chunk.idx}`;
+      for (let i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i];
+        const chunkId = `${chunk.segment_id}_${i}`;
         const embeddingData = this.useVectorTable 
           ? Array.from(chunk.embedding)
           : JSON.stringify(Array.from(chunk.embedding));
         
         stmt.run(
           chunkId,
-          chunk.doc_id,
-          chunk.idx,
-          chunk.start_off,
-          chunk.end_off,
+          chunk.segment_id,
+          chunk.start_char,
+          chunk.end_char,
           embeddingData,
           chunk.text
         );
@@ -214,30 +329,30 @@ export class DatabaseManager {
     transaction();
   }
 
-  replaceDocumentChunks(docId: string, chunks: Omit<VecChunk, 'chunk_id'>[]): void {
+  replaceSegmentChunks(segmentId: string, chunks: Omit<VecChunk, 'chunk_id'>[]): void {
     const transaction = this.db.transaction(() => {
-      // Delete existing chunks
-      const deleteStmt = this.db.prepare('DELETE FROM vec_chunks WHERE doc_id = ?');
-      deleteStmt.run(docId);
+      // Delete existing chunks for this segment
+      const deleteStmt = this.db.prepare('DELETE FROM vec_chunks WHERE segment_id = ?');
+      deleteStmt.run(segmentId);
 
       // Insert new chunks
       const insertStmt = this.db.prepare(`
-        INSERT INTO vec_chunks (chunk_id, doc_id, idx, start_off, end_off, embedding, text)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO vec_chunks (chunk_id, segment_id, start_char, end_char, embedding, text)
+        VALUES (?, ?, ?, ?, ?, ?)
       `);
 
-      for (const chunk of chunks) {
-        const chunkId = `${docId}_${chunk.idx}`;
+      for (let i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i];
+        const chunkId = `${segmentId}_${i}`;
         const embeddingData = this.useVectorTable 
           ? Array.from(chunk.embedding)
           : JSON.stringify(Array.from(chunk.embedding));
         
         insertStmt.run(
           chunkId,
-          docId,
-          chunk.idx,
-          chunk.start_off,
-          chunk.end_off,
+          segmentId,
+          chunk.start_char,
+          chunk.end_char,
           embeddingData,
           chunk.text
         );
@@ -252,24 +367,27 @@ export class DatabaseManager {
       // Use sqlite-vec for efficient vector search
       let query = `
         SELECT 
-          vec_chunks.chunk_id,
-          vec_chunks.doc_id,
-          vec_chunks.idx,
-          vec_chunks.start_off,
-          vec_chunks.end_off,
-          vec_chunks.text,
-          documents.title,
+          vc.chunk_id,
+          vc.segment_id,
+          s.doc_id,
+          s.kind,
+          s.page,
+          s.meta,
+          vc.text,
+          d.title,
+          d.content_type,
           (1 - distance) as score
-        FROM vec_chunks
-        LEFT JOIN documents ON vec_chunks.doc_id = documents.doc_id
-        WHERE vec_chunks.embedding MATCH ?
+        FROM vec_chunks vc
+        JOIN segments s ON vc.segment_id = s.segment_id
+        LEFT JOIN documents d ON s.doc_id = d.doc_id
+        WHERE vc.embedding MATCH ?
       `;
 
       const params: any[] = [Array.from(queryEmbedding)];
 
       if (docIds && docIds.length > 0) {
         const placeholders = docIds.map(() => '?').join(',');
-        query += ` AND vec_chunks.doc_id IN (${placeholders})`;
+        query += ` AND s.doc_id IN (${placeholders})`;
         params.push(...docIds);
       }
 
@@ -281,12 +399,13 @@ export class DatabaseManager {
 
       return results.map(row => ({
         chunk_id: row.chunk_id,
+        segment_id: row.segment_id,
         doc_id: row.doc_id,
-        idx: row.idx,
         score: Math.max(0, Math.min(1, row.score)), // Clamp between 0 and 1
         preview: row.text.substring(0, 240) + (row.text.length > 240 ? '...' : ''),
         text: row.text,
-        title: row.title
+        title: row.title,
+        source_badge: this.generateSourceBadge(row.title, row.content_type, row.kind, row.page, row.meta)
       }));
     } else {
       // Fallback: load all embeddings and compute similarity in memory
@@ -294,23 +413,26 @@ export class DatabaseManager {
       
       let query = `
         SELECT 
-          vec_chunks.chunk_id,
-          vec_chunks.doc_id,
-          vec_chunks.idx,
-          vec_chunks.start_off,
-          vec_chunks.end_off,
-          vec_chunks.text,
-          vec_chunks.embedding,
-          documents.title
-        FROM vec_chunks
-        LEFT JOIN documents ON vec_chunks.doc_id = documents.doc_id
+          vc.chunk_id,
+          vc.segment_id,
+          s.doc_id,
+          s.kind,
+          s.page,
+          s.meta,
+          vc.text,
+          vc.embedding,
+          d.title,
+          d.content_type
+        FROM vec_chunks vc
+        JOIN segments s ON vc.segment_id = s.segment_id
+        LEFT JOIN documents d ON s.doc_id = d.doc_id
       `;
 
       const params: any[] = [];
 
       if (docIds && docIds.length > 0) {
         const placeholders = docIds.map(() => '?').join(',');
-        query += ` WHERE vec_chunks.doc_id IN (${placeholders})`;
+        query += ` WHERE s.doc_id IN (${placeholders})`;
         params.push(...docIds);
       }
 
@@ -324,12 +446,13 @@ export class DatabaseManager {
         
         return {
           chunk_id: chunk.chunk_id,
+          segment_id: chunk.segment_id,
           doc_id: chunk.doc_id,
-          idx: chunk.idx,
           score: similarity,
           preview: chunk.text.substring(0, 240) + (chunk.text.length > 240 ? '...' : ''),
           text: chunk.text,
-          title: chunk.title
+          title: chunk.title,
+          source_badge: this.generateSourceBadge(chunk.title, chunk.content_type, chunk.kind, chunk.page, chunk.meta)
         };
       });
 
@@ -338,6 +461,30 @@ export class DatabaseManager {
         .sort((a, b) => b.score - a.score)
         .slice(0, topK);
     }
+  }
+
+  private generateSourceBadge(title: string, contentType: string, kind: string, page?: number, meta?: string): string {
+    const fileName = title || 'Unknown';
+    
+    if (contentType === 'application/pdf' && kind === 'page' && page) {
+      return `${fileName} · p.${page}`;
+    }
+    
+    if (contentType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+      if (meta) {
+        try {
+          const metaObj = JSON.parse(meta);
+          if (metaObj.heading) {
+            return `${fileName} · § ${metaObj.heading}`;
+          }
+        } catch {
+          // Ignore JSON parse errors
+        }
+      }
+      return fileName;
+    }
+    
+    return fileName;
   }
 
   private cosineSimilarity(a: Float32Array, b: Float32Array): number {
@@ -356,7 +503,7 @@ export class DatabaseManager {
 
   getChunk(chunkId: string): VecChunk | null {
     const stmt = this.db.prepare(`
-      SELECT chunk_id, doc_id, idx, start_off, end_off, text, embedding
+      SELECT chunk_id, segment_id, start_char, end_char, text, embedding
       FROM vec_chunks 
       WHERE chunk_id = ?
     `);

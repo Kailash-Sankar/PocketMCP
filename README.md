@@ -6,12 +6,15 @@
 
 - **🔍 Semantic Search**: Find content by meaning, not just keywords
 - **📁 Auto-Ingestion**: Watches folders and automatically processes new/changed files
+- **📄 Multi-Format Support**: PDF, DOCX, Markdown, and plain text files
 - **⚡ Local-First**: Runs completely offline after initial model download
 - **🗄️ SQLite Storage**: Fast, reliable vector storage with sqlite-vec extension
 - **🔧 MCP Integration**: Native support for VS Code and Cursor via MCP protocol
 - **🌐 Web Interface**: Built-in web tester for validation and manual testing
 - **💾 Efficient**: Designed for resource-constrained environments
 - **🔄 Real-time**: Debounced file watching with smart concurrency limits
+- **📊 Smart Segmentation**: Page-aware PDF processing and section-aware DOCX handling
+- **🛡️ Robust Error Handling**: Graceful handling of encrypted, corrupted, or oversized files
 
 ## Screenshots
 
@@ -393,11 +396,19 @@ PocketMCP provides resource URIs for accessing specific chunks:
 | `MODEL_ID` | `Xenova/all-MiniLM-L6-v2` | Hugging Face model for embeddings |
 | `CHUNK_SIZE` | `1000` | Target chunk size in characters |
 | `CHUNK_OVERLAP` | `120` | Overlap between chunks in characters |
+| `PDF_MAX_PAGES` | `300` | Maximum pages to process in PDF files |
+| `PDF_MIN_TEXT_CHARS` | `500` | Minimum text characters required in PDFs |
+| `DOC_MAX_BYTES` | `10000000` | Maximum file size for DOCX files (10MB) |
+| `DOCX_SPLIT_ON_HEADINGS` | `false` | Split DOCX documents on headings (h1/h2) |
 | `NODE_ENV` | `development` | Environment mode |
 | `VERBOSE_LOGGING` | `false` | Enable detailed logs |
 | `DEBUG_DOTENV` | `false` | Enable dotenv debug output |
 | `API_PORT` | `5174` | Web API server port |
 | `API_BIND` | `127.0.0.1` | API server bind address |
+| `TRANSPORT` | `both` | MCP transport mode (stdio/http/both) |
+| `HTTP_HOST` | `0.0.0.0` | HTTP server bind address |
+| `HTTP_PORT` | `8001` | MCP server port |
+| `LOG_LEVEL` | `info` | Logging level (debug/info/warn/error) |
 
 ### Available Scripts
 
@@ -414,15 +425,48 @@ PocketMCP provides resource URIs for accessing specific chunks:
 
 - **`WATCH_DIR` is optional** - if not set, only manual document upserts work
 - **Choose any directory** - `./kb` is just a convention, use whatever makes sense
-- **Supported files**: `.md`, `.txt` by default (configurable in code)
+- **Supported files**: `.md`, `.txt`, `.pdf`, `.docx` (configurable via FileIngestManager options)
 - **File filtering**: Automatically ignores temp files, `.DS_Store`, `node_modules`, etc.
 - **Nested directories**: Recursively watches all subdirectories
+
+### Document Processing Pipeline
+
+PocketMCP uses a three-tier processing model:
+
+**Documents → Segments → Chunks**
+
+1. **Documents**: Top-level files with metadata (type, size, status, etc.)
+2. **Segments**: Logical divisions within documents:
+   - **PDF**: One segment per page
+   - **DOCX**: One segment per document (or per heading section if enabled)
+   - **Text/Markdown**: Single segment per document
+3. **Chunks**: Text pieces optimized for embedding and search
+
+**Processing Status Tracking:**
+- `ok`: Successfully processed and indexed
+- `skipped`: File was skipped (encrypted, unsupported format)
+- `needs_ocr`: PDF requires OCR processing (not implemented)
+- `too_large`: File exceeds size/page limits
+- `error`: Processing failed due to an error
 
 ### Supported File Types
 
 Currently supports:
 - **Markdown** (`.md`)
 - **Plain text** (`.txt`)
+- **PDF** (`.pdf`) - Text-based PDFs only, no OCR support
+- **DOCX** (`.docx`) - Microsoft Word documents
+
+**PDF Processing Notes:**
+- Only text-based PDFs are supported (no OCR for scanned documents)
+- PDFs with insufficient text content will be marked as `needs_ocr` and skipped
+- Encrypted or password-protected PDFs will be marked as `skipped`
+- Large PDFs exceeding the page limit will be marked as `too_large`
+
+**DOCX Processing Notes:**
+- Supports modern Microsoft Word documents (.docx format only, not legacy .doc)
+- Can optionally split documents by headings (configurable via `DOCX_SPLIT_ON_HEADINGS`)
+- Large files exceeding the size limit will be marked as `too_large`
 
 To add more file types, modify the `supportedExtensions` in the `FileIngestManager` configuration.
 

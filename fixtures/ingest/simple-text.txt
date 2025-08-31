@@ -1,0 +1,7 @@
+This is a simple text file for testing basic text ingestion.
+
+It contains multiple paragraphs to test the chunking functionality.
+
+The content should be processed as a single segment since it's a plain text file.
+
+This text has enough content to create multiple chunks and test the embedding generation process.

@@ -11,7 +11,9 @@
     "start": "NODE_ENV=production TRANSPORT=both WATCH_DIR=./kb node dist/cli.js",
     "setup": "cp .env.sample .env && echo 'Created .env file from .env.sample. Please customize it for your needs.'",
     "clean": "rm -rf dist && rm -rf data/*.db* && pnpm --filter @pocketmcp/api clean && pnpm --filter @pocketmcp/web clean",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage"
   },
   "keywords": [],
   "author": "",
@@ -24,14 +26,20 @@
     "chokidar": "^4.0.3",
     "dotenv": "^17.2.1",
     "fast-glob": "^3.3.3",
+    "mammoth": "^1.10.0",
     "p-limit": "^7.1.1",
     "sqlite-vec": "0.1.7-alpha.2",
+    "unpdf": "^1.2.2",
     "zod": "^4.1.5"
   },
   "devDependencies": {
+    "@jest/globals": "^30.1.1",
     "@types/better-sqlite3": "^7.6.13",
+    "@types/jest": "^30.0.0",
     "@types/node": "^24.3.0",
     "concurrently": "^9.1.0",
+    "jest": "^30.1.1",
+    "ts-jest": "^29.4.1",
     "tsx": "^4.20.5",
     "typescript": "^5.9.2"
   }

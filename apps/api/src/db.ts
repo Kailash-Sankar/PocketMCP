@@ -108,6 +108,10 @@ export class ApiDatabaseManager {
                 const parsed = JSON.parse(sample.embedding);
                 if (Array.isArray(parsed)) {
                   diag.vec_dim = parsed.length;
+                  // Check if this looks like unpooled embeddings (should be 384 for all-MiniLM-L6-v2)
+                  if (parsed.length > 1000) {
+                    diag.errors.push(`Vector dimension ${parsed.length} seems too large. Expected 384 for all-MiniLM-L6-v2. This may indicate unpooled token-level embeddings.`);
+                  }
                 }
               }
             } catch (error) {

@@ -42,29 +42,66 @@ export class EmbeddingManager {
     }
 
     try {
-      const result = await this.pipeline(text);
+      const result = await this.pipeline(text, { pooling: 'mean', normalize: true });
 
-      // Convert to Float32Array
+      // The result should now be a pooled embedding
+      let embedding: Float32Array;
+      
       if (result instanceof Float32Array) {
-        return result;
+        embedding = result;
       } else if (Array.isArray(result)) {
-        return new Float32Array(result);
+        embedding = new Float32Array(result);
       } else if (result && typeof result === 'object' && 'data' in result) {
         const data = (result as any).data;
         if (Array.isArray(data)) {
-          return new Float32Array(data);
+          embedding = new Float32Array(data);
         } else if (data instanceof Float32Array) {
-          return data;
+          embedding = data;
         } else {
-          return new Float32Array(Array.from(data));
+          embedding = new Float32Array(Array.from(data));
         }
       } else {
         throw new Error('Unexpected embedding result format');
       }
+
+      // If we still get a multi-dimensional result, apply mean pooling manually
+      if (embedding.length !== 384) {
+        console.warn(`Got embedding of length ${embedding.length}, expected 384. Applying manual pooling.`);
+        embedding = this.applyMeanPooling(embedding);
+      }
+
+      return embedding;
     } catch (error) {
       console.error('Error generating embedding:', error);
       throw error;
     }
+  }
+
+  private applyMeanPooling(tokenEmbeddings: Float32Array): Float32Array {
+    // Assume the embeddings are in format [num_tokens, embedding_dim]
+    // where embedding_dim = 384 for all-MiniLM-L6-v2
+    const embeddingDim = 384;
+    const numTokens = tokenEmbeddings.length / embeddingDim;
+    
+    if (tokenEmbeddings.length % embeddingDim !== 0) {
+      throw new Error(`Token embeddings length ${tokenEmbeddings.length} is not divisible by embedding dimension ${embeddingDim}`);
+    }
+
+    const pooledEmbedding = new Float32Array(embeddingDim);
+    
+    // Sum all token embeddings
+    for (let tokenIdx = 0; tokenIdx < numTokens; tokenIdx++) {
+      for (let dimIdx = 0; dimIdx < embeddingDim; dimIdx++) {
+        pooledEmbedding[dimIdx] += tokenEmbeddings[tokenIdx * embeddingDim + dimIdx];
+      }
+    }
+    
+    // Average by number of tokens
+    for (let dimIdx = 0; dimIdx < embeddingDim; dimIdx++) {
+      pooledEmbedding[dimIdx] /= numTokens;
+    }
+    
+    return pooledEmbedding;
   }
 
   async embedBatch(texts: string[]): Promise<Float32Array[]> {

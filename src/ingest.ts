@@ -1,14 +1,20 @@
-import { DatabaseManager, Document } from './db.js';
+import { DatabaseManager, Document, Segment } from './db.js';
 import { EmbeddingManager } from './embeddings.js';
 import { TextChunker, TextChunk } from './chunker.js';
 import { createHash } from 'crypto';
 
 export interface IngestDocument {
-  text: string;
+  text?: string; // Optional since we might have segments instead
+  segments?: Segment[]; // Pre-segmented content
   external_id?: string;
   title?: string;
   source?: 'file' | 'url' | 'raw';
   uri?: string;
+  content_type?: string;
+  size_bytes?: number;
+  mtime?: string;
+  ingest_status?: 'ok' | 'skipped' | 'needs_ocr' | 'too_large' | 'error';
+  notes?: string;
   metadata?: Record<string, any>;
 }
 
@@ -84,7 +90,9 @@ export class IngestManager {
     }> = [];
 
     for (const doc of docs) {
-      const contentHash = this.hashContent(doc.text);
+      // Calculate content hash from either text or segments
+      const contentForHash = doc.text || (doc.segments ? doc.segments.map(s => s.text).join('\n') : '');
+      const contentHash = this.hashContent(contentForHash);
       const docId = this.generateDocId(doc);
       
       let status: 'insert' | 'update' | 'skip' = 'insert';
@@ -129,28 +137,64 @@ export class IngestManager {
       return results;
     }
 
-    // Chunk all texts
-    console.log(`Chunking ${activeProcessing.length} documents...`);
-    const allChunkData: Array<{
+    // Process segments and chunk them
+    console.log(`Processing ${activeProcessing.length} documents...`);
+    const allDocData: Array<{
       docId: string;
-      chunks: TextChunk[];
+      segments: Segment[];
+      segmentChunks: Array<{ segmentId: string; chunks: TextChunk[] }>;
       doc: IngestDocument;
       status: 'insert' | 'update';
-    }> = activeProcessing.map(item => ({
-      docId: item.docId,
-      chunks: this.chunker.chunkText(item.doc.text),
-      doc: item.doc,
-      status: item.status as 'insert' | 'update'
-    }));
+    }> = [];
+
+    for (const item of activeProcessing) {
+      const doc = item.doc;
+      let segments: Segment[];
+
+      if (doc.segments) {
+        // Use pre-segmented content
+        segments = doc.segments.map(seg => ({
+          ...seg,
+          doc_id: item.docId
+        }));
+      } else if (doc.text) {
+        // Create single segment from text
+        segments = [{
+          segment_id: `${item.docId}_text`,
+          doc_id: item.docId,
+          kind: 'section' as const,
+          text: doc.text
+        }];
+      } else {
+        console.warn(`Document ${item.docId} has no text or segments, skipping`);
+        continue;
+      }
+
+      // Chunk each segment
+      const segmentChunks = segments.map(segment => ({
+        segmentId: segment.segment_id,
+        chunks: this.chunker.chunkText(segment.text)
+      }));
+
+      allDocData.push({
+        docId: item.docId,
+        segments,
+        segmentChunks,
+        doc: item.doc,
+        status: item.status as 'insert' | 'update'
+      });
+    }
 
     // Collect all chunk texts for batch embedding
     const allChunkTexts: string[] = [];
-    const chunkMapping: Array<{ docIndex: number; chunkIndex: number }> = [];
+    const chunkMapping: Array<{ docIndex: number; segmentIndex: number; chunkIndex: number }> = [];
 
-    allChunkData.forEach((docData, docIndex) => {
-      docData.chunks.forEach((chunk, chunkIndex) => {
-        allChunkTexts.push(chunk.text);
-        chunkMapping.push({ docIndex, chunkIndex });
+    allDocData.forEach((docData, docIndex) => {
+      docData.segmentChunks.forEach((segmentData, segmentIndex) => {
+        segmentData.chunks.forEach((chunk, chunkIndex) => {
+          allChunkTexts.push(chunk.text);
+          chunkMapping.push({ docIndex, segmentIndex, chunkIndex });
+        });
       });
     });
 
@@ -161,15 +205,16 @@ export class IngestManager {
     // Assign embeddings back to chunks
     embeddings.forEach((embedding, embeddingIndex) => {
       const mapping = chunkMapping[embeddingIndex];
-      const docData = allChunkData[mapping.docIndex];
-      const chunk = docData.chunks[mapping.chunkIndex];
+      const docData = allDocData[mapping.docIndex];
+      const segmentData = docData.segmentChunks[mapping.segmentIndex];
+      const chunk = segmentData.chunks[mapping.chunkIndex];
       (chunk as any).embedding = embedding;
     });
 
     // Store everything in database
-    console.log(`Storing ${activeProcessing.length} documents in database...`);
-    for (let i = 0; i < allChunkData.length; i++) {
-      const { docId, chunks, doc, status } = allChunkData[i];
+    console.log(`Storing ${allDocData.length} documents in database...`);
+    for (let i = 0; i < allDocData.length; i++) {
+      const { docId, segments, segmentChunks, doc, status } = allDocData[i];
       const { contentHash } = activeProcessing[i];
 
       try {
@@ -180,33 +225,47 @@ export class IngestManager {
           source: doc.source || 'raw',
           uri: doc.uri || `raw://${docId}`,
           title: doc.title || 'Untitled',
+          content_type: doc.content_type || 'text/plain',
+          size_bytes: doc.size_bytes || 0,
           content_sha256: contentHash,
+          mtime: doc.mtime || new Date().toISOString(),
+          ingest_status: doc.ingest_status || 'ok',
+          notes: doc.notes,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         };
 
-        // Prepare chunk records
-        const chunkRecords = chunks.map((chunk, idx) => ({
-          doc_id: docId,
-          idx,
-          start_off: chunk.startOffset,
-          end_off: chunk.endOffset,
-          text: chunk.text,
-          embedding: (chunk as any).embedding as Float32Array
-        }));
-
-        // Store in database (this handles the transaction)
+        // Store document
         this.db.upsertDocument(docRecord);
-        this.db.replaceDocumentChunks(docId, chunkRecords);
+
+        // Store segments
+        this.db.replaceDocumentSegments(docId, segments);
+
+        // Store chunks for each segment
+        let totalChunks = 0;
+        for (let j = 0; j < segmentChunks.length; j++) {
+          const { segmentId, chunks } = segmentChunks[j];
+          
+          const chunkRecords = chunks.map((chunk, idx) => ({
+            segment_id: segmentId,
+            start_char: chunk.startOffset,
+            end_char: chunk.endOffset,
+            text: chunk.text,
+            embedding: (chunk as any).embedding as Float32Array
+          }));
+
+          this.db.replaceSegmentChunks(segmentId, chunkRecords);
+          totalChunks += chunks.length;
+        }
 
         results.push({
           doc_id: docId,
-          chunks: chunks.length,
+          chunks: totalChunks,
           status: status === 'insert' ? 'inserted' : 'updated',
           external_id: doc.external_id
         });
 
-        console.log(`${status === 'insert' ? 'Inserted' : 'Updated'} document ${docId} with ${chunks.length} chunks`);
+        console.log(`${status === 'insert' ? 'Inserted' : 'Updated'} document ${docId} with ${segments.length} segments and ${totalChunks} chunks`);
       } catch (error) {
         console.error(`Failed to store document ${docId}:`, error);
         throw error;
@@ -258,7 +317,8 @@ export class IngestManager {
     }
     
     // Generate based on content hash and timestamp
-    const contentHash = this.hashContent(doc.text);
+    const contentForHash = doc.text || (doc.segments ? doc.segments.map(s => s.text).join('\n') : '');
+    const contentHash = this.hashContent(contentForHash);
     const timestamp = Date.now().toString(36);
     return `doc_${contentHash.substring(0, 12)}_${timestamp}`;
   }
@@ -275,7 +335,6 @@ export class IngestManager {
   ): Promise<Array<{
     chunk_id: string;
     doc_id: string;
-    idx: number;
     score: number;
     preview: string;
     resource: string;
@@ -290,7 +349,6 @@ export class IngestManager {
     return results.map(result => ({
       chunk_id: result.chunk_id,
       doc_id: result.doc_id,
-      idx: result.idx,
       score: result.score,
       preview: result.preview,
       resource: `mcp+doc://${result.doc_id}#${result.chunk_id}`

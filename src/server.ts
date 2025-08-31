@@ -98,6 +98,7 @@ export function createPocketMCPServer(): ServerComponents {
   if (CONFIG.WATCH_DIR) {
     watcher = new FileWatcher(fileIngestManager, {
       watchDir: CONFIG.WATCH_DIR,
+      supportedExtensions: ['.md', '.txt', '.pdf', '.docx'],
       initialScan: true,
     });
   }
@@ -304,11 +305,11 @@ function setupHandlers(components: ServerComponents) {
                 doc_id: docId,
                 chunk_id: chunkId,
                 text: chunk.text,
-                start_off: chunk.start_off,
-                end_off: chunk.end_off,
+                start_char: chunk.start_char,
+                end_char: chunk.end_char,
                 title: document?.title,
                 metadata: {
-                  idx: chunk.idx,
+                  segment_id: chunk.segment_id,
                   source: document?.source,
                   uri: document?.uri,
                   external_id: document?.external_id,
@@ -451,11 +452,7 @@ class PocketMCPServer {
     console.log('Initializing embedding model...');
     await this.embeddings.initialize();
 
-    // Start file watcher if configured
-    if (this.watcher) {
-      console.log(`Starting file watcher for: ${CONFIG.WATCH_DIR}`);
-      await this.watcher.start();
-    }
+    // File watcher is started during component initialization in CLI
 
     // Start MCP server
     const { StdioServerTransport } = await import('@modelcontextprotocol/sdk/server/stdio.js');
