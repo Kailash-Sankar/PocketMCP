@@ -1,0 +1,146 @@
+# Node modules (will be installed in container)
+node_modules/
+apps/*/node_modules/
+
+# Build artifacts (will be built in container)
+dist/
+apps/*/dist/
+
+# Development files
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+
+# Version control
+.git/
+.gitignore
+.gitattributes
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage/
+*.lcov
+
+# nyc test coverage
+.nyc_output/
+
+# Dependency directories
+jspm_packages/
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# Optional REPL history
+.node_repl_history
+
+# Output of 'npm pack'
+*.tgz
+
+# Yarn Integrity file
+.yarn-integrity
+
+# parcel-bundler cache (https://parceljs.org/)
+.cache
+.parcel-cache
+
+# next.js build output
+.next
+
+# nuxt.js build output
+.nuxt
+
+# vuepress build output
+.vuepress/dist
+
+# Serverless directories
+.serverless
+
+# FuseBox cache
+.fusebox/
+
+# DynamoDB Local files
+.dynamodb/
+
+# TernJS port file
+.tern-port
+
+# Local database files (will be mounted as volume)
+data/
+*.db
+*.db-shm
+*.db-wal
+
+# Knowledge base (will be mounted as volume)
+kb/
+
+# Cache directory (will be mounted as volume)
+.cache/
+
+# Documentation and development files
+README.md
+*.md
+dev-prompts/
+docs/
+
+# Test files
+test/
+tests/
+*.test.js
+*.test.ts
+*.spec.js
+*.spec.ts
+
+# Docker files (except the one being built)
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# CI/CD files
+.github/
+.gitlab-ci.yml
+.travis.yml
+.circleci/
+
+# Package manager files (keep package.json but ignore lock files during build)
+# Note: We actually need these for the build, so commenting out
+# pnpm-lock.yaml
+# yarn.lock
+# package-lock.json
+
+# Temporary files
+tmp/
+temp/

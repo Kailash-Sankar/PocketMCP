@@ -1,6 +1,6 @@
 # PocketMCP
 
-**PocketMCP** is a lightweight, local-first MCP (Model Context Protocol) server that automatically watches folders, chunks and embeds files locally using Transformers.js with MiniLM, stores vectors in SQLite + sqlite-vec, and exposes semantic search capabilities to VS Code and Cursor. Designed for small machines (Intel N100, 16GB RAM) with zero external dependencies after initial model download.
+**PocketMCP** is a lightweight, local-first MCP (Model Context Protocol) server that automatically watches folders, chunks and embeds files locally using Transformers.js with MiniLM, stores vectors in SQLite + sqlite-vec, and exposes semantic search capabilities to VS Code and Cursor. Designed for small machines (I'm running on an Intel N100 with 16GB RAM) with zero external dependencies after initial model download.
 
 ## 🌟 Features
 
@@ -490,6 +490,306 @@ curl http://127.0.0.1:5174/api/db/diag
 
 ## 🚀 Production Deployment
 
+### Docker Deployment (Recommended)
+
+PocketMCP is containerized and ready for production deployment with Docker and Portainer. The Docker setup runs all components together in a single container:
+
+**🏗️ Multi-Service Architecture:**
+- **MCP Server** (port 8001): HTTP transport for MCP protocol
+- **API Server** (port 5174): Database operations and diagnostics  
+- **Web UI** (port 5173): Interactive web interface for testing and management
+- **Combined Health Check**: Monitors all services via `/health` endpoint
+
+#### Quick Start with Docker
+
+```bash
+# Pull the latest image
+docker pull ghcr.io/your-username/pocketmcp:latest
+
+# Run with all services (MCP + API + Web UI)
+docker run -d \
+  --name pocketmcp \
+  --restart unless-stopped \
+  -p 8001:8001 \
+  -p 5174:5174 \
+  -p 5173:5173 \
+  -v pocketmcp_data:/app/data \
+  -v pocketmcp_kb:/app/kb \
+  -v pocketmcp_cache:/app/.cache \
+  ghcr.io/your-username/pocketmcp:latest
+```
+
+**Access Points:**
+- **🔧 MCP Server**: `http://localhost:8001` (HTTP transport + health check)
+- **📊 API Server**: `http://localhost:5174` (Database API + diagnostics)  
+- **🌐 Web UI**: `http://localhost:5173` (Interactive web interface)
+- **❤️ Health Check**: `http://localhost:5173/health` (Combined service status)
+
+#### Docker Compose
+
+```bash
+# Clone the repository
+git clone https://github.com/your-username/PocketMCP.git
+cd PocketMCP
+
+# Copy and customize environment file
+cp .env.sample .env
+
+# Start with Docker Compose
+docker-compose up -d
+
+# View logs
+docker-compose logs -f pocketmcp
+
+# Stop
+docker-compose down
+```
+
+### Docker Operations
+
+#### Building Images
+
+**Local Build:**
+```bash
+# Build for current platform
+docker build -t pocketmcp:local .
+
+# Build multi-arch (requires buildx)
+docker buildx build --platform linux/amd64,linux/arm64 -t pocketmcp:multi-arch .
+```
+
+**GitHub Actions Build:**
+```bash
+# Tag and push to trigger automated build
+git tag v1.0.0
+git push origin v1.0.0
+
+# Manual trigger via GitHub Actions UI
+# Go to Actions → Build and Release Docker Images → Run workflow
+```
+
+#### Image Registry
+
+**GitHub Container Registry (GHCR):**
+```bash
+# Login to GHCR
+echo $GITHUB_TOKEN | docker login ghcr.io -u USERNAME --password-stdin
+
+# Tag for GHCR
+docker tag pocketmcp:local ghcr.io/USERNAME/pocketmcp:v1.0.0
+
+# Push to GHCR
+docker push ghcr.io/USERNAME/pocketmcp:v1.0.0
+```
+
+#### Tag Strategy
+
+| Tag Pattern | Purpose | Example | Recommended For |
+|-------------|---------|---------|-----------------|
+| `vX.Y.Z` | Exact version | `v1.2.3` | Production pinning |
+| `vX.Y` | Minor stream | `v1.2` | Auto-updates within minor |
+| `vX` | Major stream | `v1` | Auto-updates within major |
+| `latest` | Latest release | `latest` | Development/testing |
+| `main-SHA` | Commit-based | `main-a1b2c3d` | CI/CD pipelines |
+
+**Portainer Tag Selection:**
+- **Stable Production**: Use exact version tags (`v1.2.3`)
+- **Auto-Updates**: Use minor version tags (`v1.2`) for automatic patch updates
+- **Development**: Use `latest` for newest features
+
+#### Volume Management
+
+**Critical Volumes:**
+```bash
+# Database persistence (CRITICAL - contains all your data)
+/app/data → SQLite database, must be backed up
+
+# Knowledge base (your documents)
+/app/kb → Source documents, can be repopulated
+
+# Model cache (performance optimization)
+/app/.cache → Downloaded models, can be recreated
+```
+
+**Backup Strategy:**
+```bash
+# Backup database
+docker cp pocketmcp:/app/data/index.db ./backup-$(date +%Y%m%d).db
+
+# Backup with Docker Compose
+docker-compose exec pocketmcp cp /app/data/index.db /app/data/backup-$(date +%Y%m%d).db
+```
+
+### Portainer Setup
+
+#### Container Creation
+
+**Option 1: Portainer Stacks (Recommended)**
+
+1. Go to **Stacks** → **Add stack**
+2. Name: `pocketmcp`
+3. Paste this docker-compose content:
+
+```yaml
+version: '3.8'
+services:
+  pocketmcp:
+    image: ghcr.io/USERNAME/pocketmcp:v1.0
+    container_name: pocketmcp
+    restart: unless-stopped
+    ports:
+      - "8001:8001"  # MCP Server
+      - "5174:5174"  # API Server  
+      - "5173:5173"  # Web UI
+    volumes:
+      - pocketmcp_data:/app/data
+      - pocketmcp_kb:/app/kb  
+      - pocketmcp_cache:/app/.cache
+    environment:
+      - NODE_ENV=production
+      - TRANSPORT=both
+      - HTTP_HOST=0.0.0.0
+      - HTTP_PORT=8001
+      - API_PORT=5174
+      - WEB_PORT=5173
+      - LOG_LEVEL=info
+      - SQLITE_PATH=/app/data/index.db
+      - WATCH_DIR=/app/kb
+      - MODEL_ID=Xenova/all-MiniLM-L6-v2
+      - CHUNK_SIZE=1000
+      - CHUNK_OVERLAP=120
+      - VERBOSE_LOGGING=false
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5173/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  pocketmcp_data:
+  pocketmcp_kb:
+  pocketmcp_cache:
+```
+
+**Option 2: Individual Container**
+
+1. Go to **Containers** → **Add container**
+2. Fill in the configuration:
+
+| Setting | Value |
+|---------|-------|
+| **Name** | `pocketmcp` |
+| **Image** | `ghcr.io/USERNAME/pocketmcp:v1.0` |
+| **Port mapping** | `8001:8001, 5174:5174, 5173:5173` |
+| **Restart policy** | `Unless stopped` |
+
+#### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NODE_ENV` | `production` | Runtime environment |
+| `TRANSPORT` | `both` | MCP transport mode (`stdio`/`http`/`both`) |
+| `HTTP_HOST` | `0.0.0.0` | HTTP server bind address |
+| `HTTP_PORT` | `8001` | MCP server port |
+| `API_PORT` | `5174` | Web API server port |
+| `WEB_PORT` | `5173` | Web UI server port |
+| `LOG_LEVEL` | `info` | Logging level (`debug`/`info`/`warn`/`error`) |
+| `SQLITE_PATH` | `/app/data/index.db` | Database file path |
+| `WATCH_DIR` | `/app/kb` | Directory to watch for changes |
+| `MODEL_ID` | `Xenova/all-MiniLM-L6-v2` | Hugging Face embedding model |
+| `CHUNK_SIZE` | `1000` | Text chunk size in characters |
+| `CHUNK_OVERLAP` | `120` | Overlap between chunks |
+| `MAX_CONCURRENT_FILES` | `5` | Max files processed simultaneously |
+| `VERBOSE_LOGGING` | `false` | Enable detailed logging |
+| `HF_TOKEN` | _(optional)_ | Hugging Face API token |
+| `HF_CACHE_DIR` | `/app/.cache` | Model cache directory |
+
+#### Volume Mappings
+
+| Container Path | Purpose | Host Path Example | Required |
+|----------------|---------|-------------------|----------|
+| `/app/data` | **Database storage** | `/opt/pocketmcp/data` | **Yes** |
+| `/app/kb` | **Knowledge base** | `/opt/pocketmcp/kb` | **Yes** |
+| `/app/.cache` | **Model cache** | `/opt/pocketmcp/cache` | Recommended |
+
+**Volume Setup in Portainer:**
+1. **Volumes** tab → **Add volume**
+2. Create three volumes:
+   - `pocketmcp_data` (database)
+   - `pocketmcp_kb` (documents)  
+   - `pocketmcp_cache` (models)
+
+#### Port Configuration
+
+| Host Port | Container Port | Protocol | Purpose |
+|-----------|----------------|----------|---------|
+| `8001` | `8001` | TCP | MCP Server (HTTP transport) |
+| `5174` | `5174` | TCP | Web API Server (database operations) |
+| `5173` | `5173` | TCP | Web UI Server (interactive interface) |
+
+#### Health Check Configuration
+
+The container includes a built-in health check that monitors all services via the combined `/health` endpoint:
+
+- **Test Command**: `curl -f http://localhost:5173/health`
+- **Monitors**: MCP Server, API Server, and Web UI
+- **Interval**: 30 seconds
+- **Timeout**: 10 seconds  
+- **Start Period**: 60 seconds (allows model download)
+- **Retries**: 3
+
+**Health Response Format:**
+```json
+{
+  "status": "ok",
+  "timestamp": "2024-01-01T00:00:00.000Z",
+  "services": {
+    "mcp": "ok",
+    "api": "ok", 
+    "web": "ok"
+  }
+}
+```
+
+#### Resource Limits (Recommended)
+
+| Resource | Limit | Reservation |
+|----------|-------|-------------|
+| **Memory** | 2GB | 512MB |
+| **CPU** | 1.0 cores | 0.25 cores |
+
+#### Upgrading
+
+**Rolling Updates:**
+1. **Stacks**: Edit stack → Change image tag → **Update the stack**
+2. **Containers**: **Recreate** container with new image tag
+
+**Version Pinning vs Auto-Updates:**
+- **Pin to exact version**: `ghcr.io/USERNAME/pocketmcp:v1.2.3`
+- **Auto-update patches**: `ghcr.io/USERNAME/pocketmcp:v1.2`
+- **Auto-update minor**: `ghcr.io/USERNAME/pocketmcp:v1`
+
+#### Troubleshooting
+
+**Container won't start:**
+- Check logs in Portainer: **Containers** → **pocketmcp** → **Logs**
+- Verify volume permissions
+- Ensure ports aren't conflicting
+
+**Health check failing:**
+- Wait 60+ seconds for initial model download
+- Check individual services:
+  - MCP Server: `curl http://HOST_IP:8001/health`
+  - API Server: `curl http://HOST_IP:5174/health`
+  - Web UI: `curl http://HOST_IP:5173/health`
+- Review container logs for specific service errors
+
+**Performance issues:**
+- Increase memory limit if model loading fails
+- Reduce `CHUNK_SIZE` for lower memory usage
+- Check disk space for volumes
+
 ### systemd Service (Linux)
 
 Create `/etc/systemd/system/pocketmcp.service`:
@@ -526,45 +826,6 @@ sudo systemctl start pocketmcp
 sudo systemctl status pocketmcp
 ```
 
-### PM2 Process Manager
-
-```bash
-# Install PM2 globally
-npm install -g pm2
-
-# Create ecosystem file
-cat > ecosystem.config.js << EOF
-module.exports = {
-  apps: [{
-    name: 'pocketmcp',
-    script: 'dist/cli.js',
-    cwd: '/opt/pocketmcp',
-    env: {
-      NODE_ENV: 'production',
-      TRANSPORT: 'both',
-      HTTP_HOST: '0.0.0.0',
-      HTTP_PORT: 8001,
-      SQLITE_PATH: './data/index.db',
-      WATCH_DIR: './kb'
-    },
-    instances: 1,
-    exec_mode: 'fork',
-    watch: false,
-    max_memory_restart: '1G',
-    error_file: './logs/err.log',
-    out_file: './logs/out.log',
-    log_file: './logs/combined.log',
-    time: true
-  }]
-}
-EOF
-
-# Start with PM2
-pm2 start ecosystem.config.js
-pm2 save
-pm2 startup
-```
-
 ### Docker Deployment
 
 ```dockerfile
@@ -586,37 +847,6 @@ ENV HTTP_HOST=0.0.0.0
 ENV HTTP_PORT=8001
 
 CMD ["node", "dist/cli.js"]
-```
-
-### Mini-PC Setup (Intel N100)
-
-Recommended configuration for small form factor PCs:
-
-```bash
-# System requirements
-# - 16GB RAM minimum
-# - 100GB+ storage
-# - Ubuntu 22.04 LTS or similar
-
-# Install Node.js
-curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
-sudo apt-get install -y nodejs
-
-# Create user and directories
-sudo useradd -r -s /bin/false pocketmcp
-sudo mkdir -p /opt/pocketmcp/{data,kb,logs}
-sudo chown -R pocketmcp:pocketmcp /opt/pocketmcp
-
-# Deploy application
-sudo -u pocketmcp git clone <repo> /opt/pocketmcp
-cd /opt/pocketmcp
-sudo -u pocketmcp npm install
-sudo -u pocketmcp npm run build
-
-# Configure firewall (if needed)
-sudo ufw allow 8001/tcp
-
-# Setup systemd service (see above)
 ```
 
 ### Health Monitoring
@@ -730,6 +960,51 @@ If `sqlite-vec` fails to load:
 
 **"Database file does not exist"**
 - Run the MCP server first to create the database, or check the `SQLITE_PATH`
+
+## ✅ Docker Deployment Verification
+
+Use this checklist to verify your Docker deployment is working correctly:
+
+### Pre-Deployment Checklist
+- [ ] Docker and Docker Compose installed
+- [ ] GitHub Container Registry access configured (if using GHCR)
+- [ ] Sufficient disk space for volumes (minimum 2GB recommended)
+- [ ] Port 8001 available on host system
+
+### Build Verification
+- [ ] Multi-arch image builds successfully for both linux/amd64 and linux/arm64
+- [ ] GitHub Actions workflow completes without errors
+- [ ] Image is published to container registry
+
+### Runtime Verification
+- [ ] Container starts successfully
+- [ ] Health check endpoint returns `{"status":"ok"}` at `http://HOST:8001/health`
+- [ ] Model files download and cache in `/app/.cache` volume
+- [ ] Database initializes in `/app/data` volume
+- [ ] File watching works when documents added to `/app/kb` volume
+
+### Data Persistence Verification
+- [ ] Database persists across container restarts
+- [ ] Knowledge base files persist across container restarts  
+- [ ] Model cache persists across container restarts (improves startup time)
+
+### Portainer Integration Verification
+- [ ] Container shows "healthy" status in Portainer
+- [ ] Logs are accessible through Portainer interface
+- [ ] Volume management works through Portainer
+- [ ] Container can be upgraded by changing image tag
+
+### Upgrade Verification
+- [ ] Upgrading from `vX.Y.Z` to `vX.Y.(Z+1)` preserves all data
+- [ ] Upgrading preserves knowledge base documents
+- [ ] Health check passes after upgrade
+- [ ] MCP functionality works after upgrade
+
+### Performance Verification
+- [ ] Memory usage stays within configured limits (default: 2GB max)
+- [ ] CPU usage is reasonable during file processing
+- [ ] Search queries respond within acceptable time (typically <100ms)
+- [ ] File ingestion completes without timeout errors
 
 ## 📄 License
 
