@@ -34,7 +34,7 @@ A tiny, local-first **MCP server** that:
 ```mermaid
 flowchart LR
   Editor[VS Code / Cursor] -->|MCP stdio| Server
-  subgraph Server (Node/TS)
+  subgraph Server
     Tools[search/upsert/delete/list]
     Watcher[fs watcher]
     Chunker[chunker]
