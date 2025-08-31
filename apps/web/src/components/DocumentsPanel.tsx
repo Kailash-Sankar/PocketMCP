@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import { useEffect } from 'react';
 import { FileText, RefreshCw, ChevronRight, Calendar, Hash } from 'lucide-react';
 import { useAppStore } from '../store';
 import { apiClient } from '../api';

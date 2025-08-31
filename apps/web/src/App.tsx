@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Database, Search, FileText, Activity } from 'lucide-react';
 import { DiagnosticsPanel } from './components/DiagnosticsPanel';
 import { SearchPanel } from './components/SearchPanel';
