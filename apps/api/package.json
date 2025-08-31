@@ -1,0 +1,27 @@
+{
+  "name": "@pocketmcp/api",
+  "version": "1.0.0",
+  "description": "PocketMCP Web Tester API Server",
+  "type": "module",
+  "main": "dist/server.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "cd ../.. && tsx apps/api/src/server.ts",
+    "serve": "cd ../.. && node apps/api/dist/server.js",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "cors": "^2.8.5",
+    "better-sqlite3": "^12.2.0",
+    "dotenv": "^17.2.1"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/cors": "^2.8.17",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^24.3.0",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
+  }
+}
