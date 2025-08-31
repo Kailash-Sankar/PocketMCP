@@ -13,6 +13,13 @@
 - **💾 Efficient**: Designed for resource-constrained environments
 - **🔄 Real-time**: Debounced file watching with smart concurrency limits
 
+## Screenshots
+
+![Web Server - Stats](docs/screenshots/web-server-1.png)
+![Web Server - Search](docs/screenshots/web-server-2.png)
+![Integration - stdio](docs/screenshots/int-1.png)
+![Integration - http](docs/screenshots/int-2.png)
+
 ## 📋 Table of Contents
 
 - [Quick Start](#quick-start)
@@ -573,7 +580,7 @@ git push origin v1.0.0
 **GitHub Container Registry (GHCR):**
 ```bash
 # Login to GHCR
-echo $GITHUB_TOKEN | docker login ghcr.io -u USERNAME --password-stdin
+echo $GITHUB_TOKEN | docker login ghcr.io -u kailash-sankar --password-stdin
 
 # Tag for GHCR
 docker tag pocketmcp:local ghcr.io/kailash-sankar/pocketmcp:v1.0.0
