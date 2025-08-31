@@ -504,7 +504,7 @@ PocketMCP is containerized and ready for production deployment with Docker and P
 
 ```bash
 # Pull the latest image
-docker pull ghcr.io/Kailash-Sankar/pocketmcp:latest
+docker pull ghcr.io/kailash-sankar/pocketmcp:latest
 
 # Run with all services (MCP + API + Web UI)
 docker run -d \
@@ -516,7 +516,7 @@ docker run -d \
   -v pocketmcp_data:/app/data \
   -v pocketmcp_kb:/app/kb \
   -v pocketmcp_cache:/app/.cache \
-  ghcr.io/Kailash-Sankar/pocketmcp:latest
+  ghcr.io/kailash-sankar/pocketmcp:latest
 ```
 
 **Access Points:**
@@ -529,7 +529,7 @@ docker run -d \
 
 ```bash
 # Clone the repository
-git clone https://github.com/Kailash-Sankar/PocketMCP.git
+git clone https://github.com/kailash-sankar/PocketMCP.git
 cd PocketMCP
 
 # Copy and customize environment file
@@ -576,10 +576,10 @@ git push origin v1.0.0
 echo $GITHUB_TOKEN | docker login ghcr.io -u USERNAME --password-stdin
 
 # Tag for GHCR
-docker tag pocketmcp:local ghcr.io/USERNAME/pocketmcp:v1.0.0
+docker tag pocketmcp:local ghcr.io/kailash-sankar/pocketmcp:v1.0.0
 
 # Push to GHCR
-docker push ghcr.io/USERNAME/pocketmcp:v1.0.0
+docker push ghcr.io/kailash-sankar/pocketmcp:v1.0.0
 ```
 
 #### Tag Strategy
@@ -634,7 +634,7 @@ docker-compose exec pocketmcp cp /app/data/index.db /app/data/backup-$(date +%Y%
 version: '3.8'
 services:
   pocketmcp:
-    image: ghcr.io/USERNAME/pocketmcp:v1.0
+    image: ghcr.io/kailash-sankar/pocketmcp:v1.0
     container_name: pocketmcp
     restart: unless-stopped
     ports:
@@ -680,7 +680,7 @@ volumes:
 | Setting | Value |
 |---------|-------|
 | **Name** | `pocketmcp` |
-| **Image** | `ghcr.io/USERNAME/pocketmcp:v1.0` |
+| **Image** | `ghcr.io/kailash-sankar/pocketmcp:v1.0` |
 | **Port mapping** | `8001:8001, 5174:5174, 5173:5173` |
 | **Restart policy** | `Unless stopped` |
 
@@ -766,9 +766,9 @@ The container includes a built-in health check that monitors all services via th
 2. **Containers**: **Recreate** container with new image tag
 
 **Version Pinning vs Auto-Updates:**
-- **Pin to exact version**: `ghcr.io/USERNAME/pocketmcp:v1.2.3`
-- **Auto-update patches**: `ghcr.io/USERNAME/pocketmcp:v1.2`
-- **Auto-update minor**: `ghcr.io/USERNAME/pocketmcp:v1`
+- **Pin to exact version**: `ghcr.io/kailash-sankar/pocketmcp:v1.2.3`
+- **Auto-update patches**: `ghcr.io/kailash-sankar/pocketmcp:v1.2`
+- **Auto-update minor**: `ghcr.io/kailash-sankar/pocketmcp:v1`
 
 #### Troubleshooting
 
