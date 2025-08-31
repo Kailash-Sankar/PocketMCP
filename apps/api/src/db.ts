@@ -146,16 +146,16 @@ export class ApiDatabaseManager {
       const stmt = db.prepare(`
         SELECT 
           vec_chunks.chunk_id,
-          vec_chunks.doc_id,
-          vec_chunks.idx,
-          vec_chunks.start_off,
-          vec_chunks.end_off,
+          segments.doc_id,
+          vec_chunks.start_char,
+          vec_chunks.end_char,
           vec_chunks.text,
           documents.title
         FROM vec_chunks
-        LEFT JOIN documents ON vec_chunks.doc_id = documents.doc_id
+        LEFT JOIN segments ON vec_chunks.segment_id = segments.segment_id
+        LEFT JOIN documents ON segments.doc_id = documents.doc_id
         WHERE vec_chunks.text LIKE ?
-        ORDER BY vec_chunks.doc_id, vec_chunks.idx
+        ORDER BY segments.doc_id, vec_chunks.chunk_id
         LIMIT ?
       `);
 
@@ -164,13 +164,13 @@ export class ApiDatabaseManager {
       return results.map(row => ({
         chunk_id: row.chunk_id,
         doc_id: row.doc_id,
-        idx: row.idx,
+        idx: 0, // Not used in this schema
         score: 0.5, // Placeholder score for LIKE search
         preview: row.text.substring(0, 240) + (row.text.length > 240 ? '...' : ''),
         text: row.text,
         title: row.title,
-        start_off: row.start_off,
-        end_off: row.end_off
+        start_off: row.start_char,
+        end_off: row.end_char
       }));
     } catch (error) {
       throw new Error(`Search failed: ${error}`);
@@ -185,15 +185,15 @@ export class ApiDatabaseManager {
       const stmt = db.prepare(`
         SELECT 
           vec_chunks.chunk_id,
-          vec_chunks.doc_id,
-          vec_chunks.idx,
-          vec_chunks.start_off,
-          vec_chunks.end_off,
+          segments.doc_id,
+          vec_chunks.start_char,
+          vec_chunks.end_char,
           vec_chunks.text,
           vec_chunks.embedding,
           documents.title
         FROM vec_chunks
-        LEFT JOIN documents ON vec_chunks.doc_id = documents.doc_id
+        LEFT JOIN segments ON vec_chunks.segment_id = segments.segment_id
+        LEFT JOIN documents ON segments.doc_id = documents.doc_id
       `);
 
       const allChunks = stmt.all() as any[];
@@ -212,13 +212,13 @@ export class ApiDatabaseManager {
         return {
           chunk_id: chunk.chunk_id,
           doc_id: chunk.doc_id,
-          idx: chunk.idx,
+          idx: 0, // Not used in this schema
           score: similarity,
           preview: chunk.text.substring(0, 240) + (chunk.text.length > 240 ? '...' : ''),
           text: chunk.text,
           title: chunk.title,
-          start_off: chunk.start_off,
-          end_off: chunk.end_off
+          start_off: chunk.start_char,
+          end_off: chunk.end_char
         };
       });
 
@@ -249,13 +249,27 @@ export class ApiDatabaseManager {
     try {
       const db = this.connect();
       const stmt = db.prepare(`
-        SELECT chunk_id, doc_id, idx, start_off, end_off, text
+        SELECT 
+          vec_chunks.chunk_id, 
+          vec_chunks.segment_id, 
+          vec_chunks.start_char, 
+          vec_chunks.end_char, 
+          vec_chunks.text
         FROM vec_chunks 
         WHERE chunk_id = ?
       `);
       
-      const result = stmt.get(chunkId) as VecChunk | undefined;
-      return result || null;
+      const result = stmt.get(chunkId) as any;
+      if (!result) return null;
+      
+      return {
+        chunk_id: result.chunk_id,
+        doc_id: result.segment_id, // Map segment_id to doc_id for compatibility
+        idx: 0, // Not used in this schema
+        start_off: result.start_char,
+        end_off: result.end_char,
+        text: result.text
+      };
     } catch (error) {
       throw new Error(`Get chunk failed: ${error}`);
     }
