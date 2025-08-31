@@ -1,0 +1,39 @@
+{
+  "name": "PocketMCP",
+  "version": "1.0.0",
+  "description": "",
+  "type": "module",
+  "main": "dist/server.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "NODE_ENV=development tsx src/server.ts",
+    "dev:watch": "NODE_ENV=development WATCH_DIR=./kb tsx src/server.ts",
+    "dev:verbose": "NODE_ENV=development VERBOSE_LOGGING=true tsx src/server.ts",
+    "start": "NODE_ENV=production node dist/server.js",
+    "start:dev": "NODE_ENV=development node dist/server.js",
+    "setup": "cp .env.sample .env && echo 'Created .env file from .env.sample. Please customize it for your needs.'",
+    "clean": "rm -rf dist && rm -rf data/*.db*",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@9.15.4+sha512.b2dc20e2fc72b3e18848459b37359a32064663e5627a51e4c74b2c29dd8e8e0491483c3abb40789cfd578bf362fb6ba8261b05f0387d76792ed6e23ea3b1b6a0",
+  "dependencies": {
+    "@huggingface/transformers": "^3.7.2",
+    "@modelcontextprotocol/sdk": "^1.17.4",
+    "better-sqlite3": "^12.2.0",
+    "chokidar": "^4.0.3",
+    "dotenv": "^17.2.1",
+    "fast-glob": "^3.3.3",
+    "p-limit": "^7.1.1",
+    "sqlite-vec": "0.1.7-alpha.2",
+    "zod": "^4.1.5"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^24.3.0",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
+  }
+}

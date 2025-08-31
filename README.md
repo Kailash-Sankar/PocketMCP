@@ -1,108 +1,139 @@
 # PocketMCP
 
-here’s a tight, copy-pasteable README you can drop into a fresh repo. i’m calling the project **PocketMCP** (lightweight, local, runs great on an Intel N100). I also listed a few alternate names at the end.
+**PocketMCP** is a lightweight, local-first MCP (Model Context Protocol) server that automatically watches a folder, chunks and embeds files locally using Transformers.js with MiniLM, stores vectors in SQLite + sqlite-vec, and exposes semantic search capabilities to VS Code and Cursor. Designed for small machines (Intel N100, 16GB RAM) with zero external dependencies after initial model download.
 
----
-
-# PocketMCP
-
-A tiny, local-first **MCP server** that:
-
-* **Watches a folder**, chunks & embeds files, and stores vectors in **SQLite + sqlite-vec**
-* Exposes **semantic search** as MCP tools (+ resource URIs for exact chunks)
-* **Works offline** using **Transformers.js** with `all-MiniLM-L6-v2` embeddings
-* Integrates with **VS Code** and **Cursor**
-
-> Designed for small machines (e.g., Intel N100, 16 GB RAM). Zero external services.
-
----
-
-## Architecture (short)
-
-* **MCP Server (TypeScript)**
-  Runs over stdio. Tools: `search`, `upsert_documents`, `delete_documents`, `list_documents`. Resource: `mcp+doc://<doc_id>#<chunk_id>` returns exact chunk text.
-
-* **Embeddings (local, JS)**
-  `@huggingface/transformers` feature-extraction pipeline with `Xenova/all-MiniLM-L6-v2` → 384-dim sentence vectors (mean-pooled, L2-normalized).
-
-* **Vector Store (embedded)**
-  **SQLite + sqlite-vec** virtual table `vec0(embedding FLOAT[384])` with metadata columns for `doc_id`, `chunk_id`, offsets, and an aux `text` column.
-
-* **Ingestion**
-  `chokidar` watcher on a source directory → on add/change: read → **chunk (\~1000 tokens, 120 overlap)** → embed → upsert. On delete: remove doc’s chunks.
+## Architecture
 
 ```mermaid
-flowchart LR
-  Editor[VS Code / Cursor] -->|MCP stdio| Server
-  subgraph Server
-    Tools[search/upsert/delete/list]
-    Watcher[fs watcher]
-    Chunker[chunker]
-    Emb[Transformers.js MiniLM]
-    DB[(SQLite + sqlite-vec)]
-  end
-  Watcher --> Chunker --> Emb --> DB
-  Tools --> DB
+flowchart TD
+    subgraph "MCP Clients"
+        A[VS Code] 
+        B[Cursor]
+    end
+    
+    subgraph "PocketMCP Server"
+        C[MCP Server<br/>stdio transport]
+        D[File Watcher<br/>chokidar]
+        E[Text Chunker<br/>~1000 chars]
+        F[Embeddings<br/>Transformers.js<br/>MiniLM-L6-v2]
+        G[SQLite + sqlite-vec<br/>Vector Database]
+    end
+    
+    subgraph "File System"
+        H[Watch Directory<br/>./kb/]
+        I[Data Directory<br/>./data/]
+    end
+    
+    A -.->|MCP Tools| C
+    B -.->|MCP Tools| C
+    C --> D
+    D -->|File Changes| E
+    E -->|Text Chunks| F
+    F -->|384-dim Vectors| G
+    G -.->|Search Results| C
+    D -.->|Monitors| H
+    G -.->|Stores in| I
+    
+    classDef mcpClient fill:#e1f5fe
+    classDef server fill:#f3e5f5
+    classDef storage fill:#e8f5e8
+    
+    class A,B mcpClient
+    class C,D,E,F,G server
+    class H,I storage
 ```
 
----
+## Features
 
-## Requirements
+- **🔍 Semantic Search**: Find content by meaning, not just keywords
+- **📁 Auto-Ingestion**: Watches folders and automatically processes new/changed files
+- **⚡ Local-First**: Runs completely offline after initial model download
+- **🗄️ SQLite Storage**: Fast, reliable vector storage with sqlite-vec extension
+- **🔧 MCP Integration**: Native support for VS Code and Cursor via MCP protocol
+- **💾 Efficient**: Designed for resource-constrained environments
+- **🔄 Real-time**: Debounced file watching with smart concurrency limits
 
-* Node 18+ (or 20+ recommended), pnpm or npm
-* SQLite; `sqlite-vec` extension (installed via npm module)
-* First run will download model weights to local cache (then fully offline)
+## Quick Start
 
----
-
-## Quickstart
+### 1. Installation
 
 ```bash
-# 1) Scaffold
-git init pocketmcp && cd pocketmcp
-# (paste this README as README.md)
+# Clone or download the project
+cd PocketMCP
 
-# 2) Install
-pnpm init -y
-pnpm add @modelcontextprotocol/sdk @huggingface/transformers better-sqlite3 sqlite-vec chokidar fast-glob p-limit zod dotenv
-pnpm add -D typescript tsx @types/node
+# Install dependencies
+pnpm install
 
-# 3) Make folders
-mkdir -p src data kb
-
-# 4) Env (optional)
-cat > .env << 'EOF'
-SQLITE_PATH=./data/index.db
-WATCH_DIR=./kb
-MODEL_ID=Xenova/all-MiniLM-L6-v2
-CHUNK_SIZE=1000
-CHUNK_OVERLAP=120
-EOF
+# Copy environment template
+cp .env.example .env
 ```
 
-Add minimal `package.json` scripts:
+### 2. Configuration
+
+Edit `.env` file:
+
+```bash
+# SQLite database path
+SQLITE_PATH=./data/index.db
+
+# Directory to watch for file changes (optional)
+WATCH_DIR=./kb
+
+# Embedding model (default is recommended)
+MODEL_ID=Xenova/all-MiniLM-L6-v2
+
+# Chunking configuration
+CHUNK_SIZE=1000
+CHUNK_OVERLAP=120
+```
+
+### 3. Create Content Directory
+
+```bash
+# Create directory for your documents
+mkdir -p kb
+
+# Add some markdown or text files
+echo "# My First Document" > kb/test.md
+echo "This is a sample document for testing PocketMCP." >> kb/test.md
+```
+
+### 4. Start the Server
+
+```bash
+# Development mode (recommended for testing)
+pnpm dev
+
+# Or build and run production
+pnpm build
+pnpm start
+```
+
+On first run, the server will download the MiniLM model (~100MB) and then process any files in your watch directory.
+
+## MCP Client Configuration
+
+### Cursor Integration
+
+1. Open **Cursor Settings** → **MCP**
+2. Add a new server with these settings:
 
 ```json
 {
-  "scripts": {
-    "dev": "tsx src/server.ts",
-    "build": "tsc -p .",
-    "start": "node dist/server.js"
+  "command": "pnpm",
+  "args": ["dev"],
+  "cwd": "/path/to/PocketMCP",
+  "env": {
+    "SQLITE_PATH": "./data/index.db",
+    "WATCH_DIR": "./kb",
+    "MODEL_ID": "Xenova/all-MiniLM-L6-v2"
   }
 }
 ```
 
----
+### VS Code Integration
 
-## VS Code / Cursor integration
-
-**Cursor** → Settings → MCP → Add server:
-
-* Command: `pnpm`
-* Args: `dev`
-* Env: (from `.env` or set `MODEL_ID`, `SQLITE_PATH`, `WATCH_DIR`)
-
-**VS Code** (clients that support MCP `mcpServers`):
+For VS Code clients that support MCP, add to your settings:
 
 ```json
 {
@@ -110,6 +141,7 @@ Add minimal `package.json` scripts:
     "pocketmcp": {
       "command": "pnpm",
       "args": ["dev"],
+      "cwd": "/path/to/PocketMCP",
       "env": {
         "SQLITE_PATH": "./data/index.db",
         "WATCH_DIR": "./kb",
@@ -120,49 +152,191 @@ Add minimal `package.json` scripts:
 }
 ```
 
----
+**Alternative: Direct Node Execution**
 
-## Tool interface (MCP)
-
-* `search({ query: string, top_k?: number, filter?: { doc_ids?: string[], source?: string } })`
-
-  * Returns `{ matches: [{ chunk_id, doc_id, score, preview, resource }] }`
-* `upsert_documents({ docs?: [{ text, external_id?, metadata? }] })`
-* `delete_documents({ doc_ids?: string[], external_ids?: string[] })`
-* `list_documents({ page?: { limit?: number, cursor?: string } })`
-* **Resource**: `mcp+doc://<doc_id>#<chunk_id>` → `{ text, doc_id, chunk_id, metadata }`
-
----
-
-## Project layout
-
-```
-src/
-  server.ts           # MCP wiring (tools + resource)
-  db.ts               # SQLite init (WAL, sqlite-vec load, schema)
-  embeddings.ts       # Transformers.js MiniLM pipeline
-  chunker.ts          # ~1000 token chunks, 120 overlap
-  ingest.ts           # raw upsert helpers
-  file-ingest.ts      # file -> text -> chunks -> vectors -> DB
-  watcher.ts          # chokidar + debounce + concurrency
-data/                 # index.db lives here
-kb/                   # your source folder to watch
+```json
+{
+  "command": "node",
+  "args": ["dist/server.js"],
+  "cwd": "/path/to/PocketMCP",
+  "env": {
+    "SQLITE_PATH": "./data/index.db",
+    "WATCH_DIR": "./kb"
+  }
+}
 ```
 
----
+## Available Tools
 
-## Configuration (env)
+### `search`
+Search for similar content using semantic search.
 
-* `SQLITE_PATH` (default `./data/index.db`)
-* `WATCH_DIR` (enable auto-ingest if set)
-* `MODEL_ID` (`Xenova/all-MiniLM-L6-v2`)
-* `CHUNK_SIZE` (default 1000) / `CHUNK_OVERLAP` (default 120)
+```json
+{
+  "query": "machine learning algorithms",
+  "top_k": 5,
+  "filter": {
+    "doc_ids": ["doc_123", "doc_456"]
+  }
+}
+```
 
----
+### `upsert_documents`
+Insert or update documents programmatically.
 
-## Limits & expectations
+```json
+{
+  "docs": [
+    {
+      "text": "Your document content here...",
+      "external_id": "my_doc_1",
+      "title": "Important Notes",
+      "metadata": {}
+    }
+  ]
+}
+```
 
-* Great for **\~10k–100k chunks** on a single DB file.
-* Typical **query latency**: sub-100 ms for `top_k<=10` on modest corpora.
-* Memory: MiniLM model is small (\~100MB class); stays well within 16 GB.
+### `delete_documents`
+Delete documents by ID.
 
+```json
+{
+  "doc_ids": ["doc_123"],
+  "external_ids": ["my_doc_1"]
+}
+```
+
+### `list_documents`
+List all documents with pagination.
+
+```json
+{
+  "page": {
+    "limit": 20
+  }
+}
+```
+
+## Resources
+
+PocketMCP also provides resource URIs for accessing specific chunks:
+
+- **Format**: `mcp+doc://<doc_id>#<chunk_id>`
+- **Returns**: Complete chunk data including text, offsets, and metadata
+
+## Directory Structure
+
+```
+PocketMCP/
+├── src/
+│   ├── server.ts          # MCP server and main entry point
+│   ├── db.ts              # SQLite database with sqlite-vec
+│   ├── embeddings.ts      # Transformers.js embedding pipeline
+│   ├── chunker.ts         # Text chunking with sentence awareness
+│   ├── ingest.ts          # Generic document ingestion
+│   ├── file-ingest.ts     # File-specific ingestion logic
+│   └── watcher.ts         # File system watcher with debouncing
+├── data/                  # SQLite database storage
+├── kb/                    # Default watch directory (configurable)
+├── .env                   # Environment configuration
+└── README.md
+```
+
+## Configuration Options
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SQLITE_PATH` | `./data/index.db` | Path to SQLite database file |
+| `WATCH_DIR` | (none) | Directory to watch for file changes |
+| `MODEL_ID` | `Xenova/all-MiniLM-L6-v2` | Hugging Face model for embeddings |
+| `CHUNK_SIZE` | `1000` | Target chunk size in characters |
+| `CHUNK_OVERLAP` | `120` | Overlap between chunks in characters |
+
+### Watch Directory Notes
+
+- **`WATCH_DIR` is optional** - if not set, only manual document upserts work
+- **Choose any directory** - `./kb` is just a convention, use whatever makes sense
+- **Supported files**: `.md`, `.txt` by default (configurable in code)
+- **File filtering**: Automatically ignores temp files, `.DS_Store`, `node_modules`, etc.
+- **Nested directories**: Recursively watches all subdirectories
+
+### Supported File Types
+
+Currently supports:
+- **Markdown** (`.md`)
+- **Plain text** (`.txt`)
+
+To add more file types, modify the `supportedExtensions` in the `FileIngestManager` configuration.
+
+## Performance & Limits
+
+- **Sweet spot**: 10K-100K chunks on modest hardware
+- **Query latency**: Sub-100ms for `top_k <= 10` on typical corpora
+- **Memory usage**: ~100MB for model + minimal overhead per document
+- **Concurrency**: Limited to 3 simultaneous file operations by default
+- **File size limit**: 50MB per file (configurable)
+
+## Development
+
+```bash
+# Install dependencies
+pnpm install
+
+# Run in development mode (hot reload)
+pnpm dev
+
+# Build for production
+pnpm build
+
+# Run production build
+pnpm start
+
+# Run with custom environment
+WATCH_DIR=./my-docs CHUNK_SIZE=500 pnpm dev
+```
+
+## Troubleshooting
+
+### Model Download Issues
+If the embedding model fails to download:
+- Check internet connection for initial download
+- Model cache location: `~/.cache/huggingface/transformers/`
+- Clear cache and retry if needed
+
+### SQLite Extension Issues
+If `sqlite-vec` fails to load:
+- Ensure `sqlite-vec` npm package is installed
+- Check that your system supports the required SQLite version
+- On some systems, you may need to install SQLite development headers
+
+### File Watching Issues
+- **Files not being detected**: Check file extensions and ignore patterns
+- **High CPU usage**: Increase debounce time with larger `debounceMs` values
+- **Permission errors**: Ensure read/write access to watch and data directories
+
+### Memory Issues
+- Reduce `CHUNK_SIZE` for lower memory usage
+- Process fewer files simultaneously by reducing `maxConcurrency`
+- Consider using a smaller embedding model (though this requires code changes)
+
+## License
+
+MIT License - see LICENSE file for details.
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests if applicable
+5. Submit a pull request
+
+## Acknowledgments
+
+- **sqlite-vec** for fast vector similarity search
+- **Transformers.js** for local embedding generation
+- **Model Context Protocol** for standardized tool integration
+- **Hugging Face** for the MiniLM model
