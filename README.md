@@ -504,7 +504,7 @@ PocketMCP is containerized and ready for production deployment with Docker and P
 
 ```bash
 # Pull the latest image
-docker pull ghcr.io/your-username/pocketmcp:latest
+docker pull ghcr.io/Kailash-Sankar/pocketmcp:latest
 
 # Run with all services (MCP + API + Web UI)
 docker run -d \
@@ -516,7 +516,7 @@ docker run -d \
   -v pocketmcp_data:/app/data \
   -v pocketmcp_kb:/app/kb \
   -v pocketmcp_cache:/app/.cache \
-  ghcr.io/your-username/pocketmcp:latest
+  ghcr.io/Kailash-Sankar/pocketmcp:latest
 ```
 
 **Access Points:**
@@ -529,7 +529,7 @@ docker run -d \
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/PocketMCP.git
+git clone https://github.com/Kailash-Sankar/PocketMCP.git
 cd PocketMCP
 
 # Copy and customize environment file
