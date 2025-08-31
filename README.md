@@ -73,25 +73,36 @@ echo "This is a sample document for testing PocketMCP." >> kb/test.md
 ### 4. Start the Server
 
 **Option A: MCP Server Only**
+
+PocketMCP now supports multiple transport modes:
+
 ```bash
-# Development mode (recommended for testing)
+# Development - MCP server with both transports + file watching
 pnpm dev:mcp
 
-# With file watching enabled
-pnpm dev:mcp:watch
-
-# Production mode
+# Production - MCP server with both transports + file watching
 pnpm build && pnpm start
 ```
 
-**Option B: MCP Server + Web Tester**
-```bash
-# Start both web interface and API server
-pnpm dev
+**Transport Modes:**
+- **`stdio`**: Standard MCP protocol over stdin/stdout (for VS Code, Cursor)
+- **`http`**: Streamable HTTP transport with CORS support (for web clients, LAN access)
+- **`both`**: Run both transports simultaneously (recommended for production)
 
-# Or start individual components
-pnpm --filter @pocketmcp/api dev    # API server only
-pnpm --filter @pocketmcp/web dev    # Web interface only
+**HTTP Transport Endpoints:**
+- **MCP**: `http://0.0.0.0:8001/mcp` (Streamable HTTP MCP protocol)
+- **Health**: `http://0.0.0.0:8001/health` (JSON health check)
+
+**Environment Variables:**
+- `TRANSPORT`: `stdio` | `http` | `both` (default: `both`)
+- `HTTP_HOST`: HTTP bind address (default: `0.0.0.0`)
+- `HTTP_PORT`: HTTP port (default: `8001`)
+- `LOG_LEVEL`: `debug` | `info` | `warn` | `error` (default: `info`)
+
+**Option B: Web Interface + API Server**
+```bash
+# Start web interface and API server for testing
+pnpm dev
 ```
 
 On first run, the server will download the MiniLM model (~100MB) and then process any files in your watch directory.
@@ -160,7 +171,11 @@ curl http://127.0.0.1:5174/api/db/diag | jq .
 
 ## 🔧 MCP Client Integration
 
-### Cursor Integration
+PocketMCP supports both **stdio** and **HTTP** transports for maximum compatibility.
+
+### Option A: Stdio Transport (Recommended for Desktop Clients)
+
+**Cursor Integration:**
 
 1. Open **Cursor Settings** → **MCP**
 2. Add a new server with these settings:
@@ -171,6 +186,7 @@ curl http://127.0.0.1:5174/api/db/diag | jq .
   "args": ["dev:mcp"],
   "cwd": "/path/to/PocketMCP",
   "env": {
+    "TRANSPORT": "stdio",
     "SQLITE_PATH": "./data/index.db",
     "WATCH_DIR": "./kb",
     "MODEL_ID": "Xenova/all-MiniLM-L6-v2"
@@ -178,7 +194,7 @@ curl http://127.0.0.1:5174/api/db/diag | jq .
 }
 ```
 
-### VS Code Integration
+**VS Code Integration:**
 
 For VS Code clients that support MCP, add to your settings:
 
@@ -190,6 +206,7 @@ For VS Code clients that support MCP, add to your settings:
       "args": ["dev:mcp"],
       "cwd": "/path/to/PocketMCP",
       "env": {
+        "TRANSPORT": "stdio",
         "SQLITE_PATH": "./data/index.db",
         "WATCH_DIR": "./kb",
         "MODEL_ID": "Xenova/all-MiniLM-L6-v2"
@@ -199,18 +216,102 @@ For VS Code clients that support MCP, add to your settings:
 }
 ```
 
-**Alternative: Direct Node Execution**
+**Production: Direct Node Execution**
 
 ```json
 {
   "command": "node",
-  "args": ["dist/server.js"],
+  "args": ["dist/cli.js"],
   "cwd": "/path/to/PocketMCP",
   "env": {
+    "TRANSPORT": "stdio",
     "SQLITE_PATH": "./data/index.db",
     "WATCH_DIR": "./kb"
   }
 }
+```
+
+### Option B: HTTP Transport (For Web Clients & Remote Access)
+
+**Start PocketMCP Server:**
+
+First, start PocketMCP with HTTP transport enabled:
+
+```bash
+# Development
+pnpm dev:mcp
+
+# Or production
+pnpm build && pnpm start
+
+# Or HTTP only
+TRANSPORT=http pnpm dev:mcp
+```
+
+**MCP Client Configuration (HTTP):**
+
+For MCP clients that support HTTP transport, configure the connection:
+
+```json
+{
+  "mcpServers": {
+    "pocketmcp": {
+      "transport": "http",
+      "url": "http://localhost:8001/mcp",
+      "headers": {
+        "Content-Type": "application/json"
+      }
+    }
+  }
+}
+```
+
+**Web Client Integration:**
+
+For web applications using MCP over HTTP:
+
+```javascript
+// Example: Connect to PocketMCP via HTTP
+const mcpClient = new MCPClient({
+  transport: 'http',
+  url: 'http://localhost:8001/mcp',
+  headers: {
+    'Content-Type': 'application/json'
+  }
+});
+
+// Initialize connection
+await mcpClient.connect();
+
+// Use MCP tools
+const searchResults = await mcpClient.callTool('search', {
+  query: 'machine learning',
+  top_k: 5
+});
+```
+
+**Remote/LAN Access:**
+
+To access PocketMCP from other machines on your network:
+
+```bash
+# Start with network binding
+HTTP_HOST=0.0.0.0 HTTP_PORT=8001 pnpm dev:mcp
+
+# Then connect from other machines using your server's IP
+# http://192.168.1.100:8001/mcp
+```
+
+**Health Check:**
+
+Test the HTTP transport:
+
+```bash
+# Health check
+curl http://localhost:8001/health
+
+# Expected response
+{"status":"ok","timestamp":"2024-01-01T00:00:00.000Z"}
 ```
 
 ## 📚 API Reference
@@ -295,12 +396,10 @@ PocketMCP provides resource URIs for accessing specific chunks:
 
 | Script | Description |
 |--------|-------------|
-| `pnpm dev` | Start web interface + API server |
-| `pnpm dev:mcp` | Start MCP server only |
-| `pnpm dev:mcp:watch` | Start MCP server with file watching |
-| `pnpm dev:mcp:verbose` | Start MCP server with verbose logging |
+| `pnpm dev` | Start web interface + API server for testing |
+| `pnpm dev:mcp` | Start MCP server (both transports + file watching) |
 | `pnpm build` | Build all components |
-| `pnpm start` | Start production MCP server |
+| `pnpm start` | Start production MCP server (both transports + file watching) |
 | `pnpm setup` | Create .env from template |
 | `pnpm clean` | Clean build artifacts and database |
 
@@ -387,6 +486,151 @@ WATCH_DIR=./my-docs CHUNK_SIZE=500 pnpm dev:mcp
 # Manual API testing
 curl http://127.0.0.1:5174/health
 curl http://127.0.0.1:5174/api/db/diag
+```
+
+## 🚀 Production Deployment
+
+### systemd Service (Linux)
+
+Create `/etc/systemd/system/pocketmcp.service`:
+
+```ini
+[Unit]
+Description=PocketMCP Server
+After=network.target
+
+[Service]
+Type=simple
+User=pocketmcp
+WorkingDirectory=/opt/pocketmcp
+Environment=NODE_ENV=production
+Environment=TRANSPORT=both
+Environment=HTTP_HOST=0.0.0.0
+Environment=HTTP_PORT=8001
+Environment=SQLITE_PATH=/opt/pocketmcp/data/index.db
+Environment=WATCH_DIR=/opt/pocketmcp/kb
+ExecStart=/usr/bin/node dist/cli.js
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable and start:
+```bash
+sudo systemctl enable pocketmcp
+sudo systemctl start pocketmcp
+sudo systemctl status pocketmcp
+```
+
+### PM2 Process Manager
+
+```bash
+# Install PM2 globally
+npm install -g pm2
+
+# Create ecosystem file
+cat > ecosystem.config.js << EOF
+module.exports = {
+  apps: [{
+    name: 'pocketmcp',
+    script: 'dist/cli.js',
+    cwd: '/opt/pocketmcp',
+    env: {
+      NODE_ENV: 'production',
+      TRANSPORT: 'both',
+      HTTP_HOST: '0.0.0.0',
+      HTTP_PORT: 8001,
+      SQLITE_PATH: './data/index.db',
+      WATCH_DIR: './kb'
+    },
+    instances: 1,
+    exec_mode: 'fork',
+    watch: false,
+    max_memory_restart: '1G',
+    error_file: './logs/err.log',
+    out_file: './logs/out.log',
+    log_file: './logs/combined.log',
+    time: true
+  }]
+}
+EOF
+
+# Start with PM2
+pm2 start ecosystem.config.js
+pm2 save
+pm2 startup
+```
+
+### Docker Deployment
+
+```dockerfile
+FROM node:18-alpine
+
+WORKDIR /app
+COPY package*.json ./
+RUN npm install --production
+
+COPY dist/ ./dist/
+COPY data/ ./data/
+COPY kb/ ./kb/
+
+EXPOSE 8000
+
+ENV NODE_ENV=production
+ENV TRANSPORT=both
+ENV HTTP_HOST=0.0.0.0
+ENV HTTP_PORT=8001
+
+CMD ["node", "dist/cli.js"]
+```
+
+### Mini-PC Setup (Intel N100)
+
+Recommended configuration for small form factor PCs:
+
+```bash
+# System requirements
+# - 16GB RAM minimum
+# - 100GB+ storage
+# - Ubuntu 22.04 LTS or similar
+
+# Install Node.js
+curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+sudo apt-get install -y nodejs
+
+# Create user and directories
+sudo useradd -r -s /bin/false pocketmcp
+sudo mkdir -p /opt/pocketmcp/{data,kb,logs}
+sudo chown -R pocketmcp:pocketmcp /opt/pocketmcp
+
+# Deploy application
+sudo -u pocketmcp git clone <repo> /opt/pocketmcp
+cd /opt/pocketmcp
+sudo -u pocketmcp npm install
+sudo -u pocketmcp npm run build
+
+# Configure firewall (if needed)
+sudo ufw allow 8001/tcp
+
+# Setup systemd service (see above)
+```
+
+### Health Monitoring
+
+```bash
+# Health check endpoint
+curl http://localhost:8001/health
+
+# Expected response
+{"status":"ok","timestamp":"2024-01-01T00:00:00.000Z"}
+
+# Log monitoring
+journalctl -u pocketmcp -f  # systemd
+pm2 logs pocketmcp          # PM2
 ```
 
 ## 🏗️ Architecture

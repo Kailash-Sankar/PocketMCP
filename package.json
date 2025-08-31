@@ -5,13 +5,10 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "build": "pnpm --filter @pocketmcp/api build && pnpm --filter @pocketmcp/web build",
+    "build": "tsc && pnpm --filter @pocketmcp/api build && pnpm --filter @pocketmcp/web build",
     "dev": "concurrently \"pnpm --filter @pocketmcp/api dev\" \"pnpm --filter @pocketmcp/web dev\"",
-    "dev:mcp": "NODE_ENV=development tsx src/server.ts",
-    "dev:mcp:watch": "NODE_ENV=development WATCH_DIR=./kb tsx src/server.ts",
-    "dev:mcp:verbose": "NODE_ENV=development VERBOSE_LOGGING=true tsx src/server.ts",
-    "start": "NODE_ENV=production node dist/server.js",
-    "start:dev": "NODE_ENV=development node dist/server.js",
+    "dev:mcp": "NODE_ENV=development TRANSPORT=both WATCH_DIR=./kb tsx src/cli.ts",
+    "start": "NODE_ENV=production TRANSPORT=both WATCH_DIR=./kb node dist/cli.js",
     "setup": "cp .env.sample .env && echo 'Created .env file from .env.sample. Please customize it for your needs.'",
     "clean": "rm -rf dist && rm -rf data/*.db* && pnpm --filter @pocketmcp/api clean && pnpm --filter @pocketmcp/web clean",
     "test": "echo \"Error: no test specified\" && exit 1"

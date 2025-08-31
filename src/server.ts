@@ -1,7 +1,4 @@
-#!/usr/bin/env node
-
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
   CallToolRequestSchema,
   ErrorCode,
@@ -30,7 +27,7 @@ config({
 });
 
 // Configuration
-const CONFIG = {
+export const CONFIG = {
   // Database
   SQLITE_PATH: process.env.SQLITE_PATH || './data/index.db',
   
@@ -56,55 +53,77 @@ const CONFIG = {
   HF_CACHE_DIR: process.env.HF_CACHE_DIR,
 };
 
-class PocketMCPServer {
-  private server: Server;
-  private db: DatabaseManager;
-  private embeddings: EmbeddingManager;
-  private chunker: TextChunker;
-  private ingestManager: IngestManager;
-  private fileIngestManager: FileIngestManager;
-  private watcher?: FileWatcher;
+export interface ServerComponents {
+  server: Server;
+  db: DatabaseManager;
+  embeddings: EmbeddingManager;
+  chunker: TextChunker;
+  ingestManager: IngestManager;
+  fileIngestManager: FileIngestManager;
+  watcher?: FileWatcher;
+}
 
-  constructor() {
-    this.server = new Server(
-      {
-        name: 'PocketMCP',
-        version: '1.0.0',
+/**
+ * Creates and configures a PocketMCP server instance with all components
+ * @returns Configured server components
+ */
+export function createPocketMCPServer(): ServerComponents {
+  const server = new Server(
+    {
+      name: 'PocketMCP',
+      version: '1.0.0',
+    },
+    {
+      capabilities: {
+        resources: {},
+        tools: {},
       },
-      {
-        capabilities: {
-          resources: {},
-          tools: {},
-        },
-      }
-    );
-
-    // Initialize components
-    this.db = new DatabaseManager(CONFIG.SQLITE_PATH);
-    this.embeddings = new EmbeddingManager(CONFIG.MODEL_ID);
-    this.chunker = new TextChunker({
-      chunkSize: CONFIG.CHUNK_SIZE,
-      chunkOverlap: CONFIG.CHUNK_OVERLAP,
-    });
-    this.ingestManager = new IngestManager(this.db, this.embeddings, this.chunker);
-    this.fileIngestManager = new FileIngestManager(this.ingestManager, {
-      watchDir: CONFIG.WATCH_DIR,
-    });
-
-    // Set up file watcher if watch directory is configured
-    if (CONFIG.WATCH_DIR) {
-      this.watcher = new FileWatcher(this.fileIngestManager, {
-        watchDir: CONFIG.WATCH_DIR,
-        initialScan: true,
-      });
     }
+  );
 
-    this.setupHandlers();
+  // Initialize components
+  const db = new DatabaseManager(CONFIG.SQLITE_PATH);
+  const embeddings = new EmbeddingManager(CONFIG.MODEL_ID);
+  const chunker = new TextChunker({
+    chunkSize: CONFIG.CHUNK_SIZE,
+    chunkOverlap: CONFIG.CHUNK_OVERLAP,
+  });
+  const ingestManager = new IngestManager(db, embeddings, chunker);
+  const fileIngestManager = new FileIngestManager(ingestManager, {
+    watchDir: CONFIG.WATCH_DIR,
+  });
+
+  // Set up file watcher if watch directory is configured
+  let watcher: FileWatcher | undefined;
+  if (CONFIG.WATCH_DIR) {
+    watcher = new FileWatcher(fileIngestManager, {
+      watchDir: CONFIG.WATCH_DIR,
+      initialScan: true,
+    });
   }
 
-  private setupHandlers() {
-    // List available tools
-    this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
+  const components: ServerComponents = {
+    server,
+    db,
+    embeddings,
+    chunker,
+    ingestManager,
+    fileIngestManager,
+    watcher,
+  };
+
+  setupHandlers(components);
+  return components;
+}
+
+/**
+ * Sets up request handlers for the MCP server
+ * @param components Server components containing handlers
+ */
+function setupHandlers(components: ServerComponents) {
+  const { server, db, ingestManager } = components;
+  // List available tools
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({
       tools: [
         {
           name: 'search',
@@ -218,20 +237,20 @@ class PocketMCPServer {
       ],
     }));
 
-    // Handle tool calls
-    this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  // Handle tool calls
+  server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const { name, arguments: args } = request.params;
 
       try {
         switch (name) {
           case 'search':
-            return await this.handleSearch(args);
+            return await handleSearch(args, ingestManager);
           case 'upsert_documents':
-            return await this.handleUpsertDocuments(args);
+            return await handleUpsertDocuments(args, ingestManager);
           case 'delete_documents':
-            return await this.handleDeleteDocuments(args);
+            return await handleDeleteDocuments(args, ingestManager);
           case 'list_documents':
-            return await this.handleListDocuments(args);
+            return await handleListDocuments(args, db);
           default:
             throw new McpError(ErrorCode.MethodNotFound, `Tool ${name} not found`);
         }
@@ -244,8 +263,8 @@ class PocketMCPServer {
       }
     });
 
-    // List available resources
-    this.server.setRequestHandler(ListResourcesRequestSchema, async () => {
+  // List available resources
+  server.setRequestHandler(ListResourcesRequestSchema, async () => {
       // For now, we don't pre-list resources since they're dynamically generated
       // based on document and chunk IDs
       return {
@@ -253,8 +272,8 @@ class PocketMCPServer {
       };
     });
 
-    // Handle resource reading
-    this.server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+  // Handle resource reading
+  server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
       const uri = request.params.uri;
 
       // Parse mcp+doc://doc_id#chunk_id format
@@ -269,8 +288,8 @@ class PocketMCPServer {
         }
 
         const [docId, chunkId] = uriParts;
-        const chunk = this.db.getChunk(chunkId);
-        const document = this.db.getDocument(docId);
+        const chunk = db.getChunk(chunkId);
+        const document = db.getDocument(docId);
 
         if (!chunk) {
           throw new McpError(ErrorCode.InvalidRequest, `Chunk not found: ${chunkId}`);
@@ -306,105 +325,118 @@ class PocketMCPServer {
         );
       }
     });
-  }
+}
 
-  private async handleSearch(args: any): Promise<any> {
+async function handleSearch(args: any, ingestManager: IngestManager): Promise<any> {
     const { query, top_k = 8, filter } = args;
 
     if (!query || typeof query !== 'string') {
       throw new McpError(ErrorCode.InvalidParams, 'Query is required and must be a string');
     }
 
-    const docIds = filter?.doc_ids;
-    const results = await this.ingestManager.search(query, top_k, docIds);
+  const docIds = filter?.doc_ids;
+  const results = await ingestManager.search(query, top_k, docIds);
 
-    return {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify({
-            matches: results,
-            query,
-            total: results.length,
-          }, null, 2),
-        },
-      ],
-    };
-  }
+  return {
+    content: [
+      {
+        type: 'text',
+        text: JSON.stringify({
+          matches: results,
+          query,
+          total: results.length,
+        }, null, 2),
+      },
+    ],
+  };
+}
 
-  private async handleUpsertDocuments(args: any): Promise<any> {
+async function handleUpsertDocuments(args: any, ingestManager: IngestManager): Promise<any> {
     const { docs } = args;
 
     if (!Array.isArray(docs) || docs.length === 0) {
       throw new McpError(ErrorCode.InvalidParams, 'docs is required and must be a non-empty array');
     }
 
-    const results = await this.ingestManager.ingestBatch(docs);
+  const results = await ingestManager.ingestBatch(docs);
 
-    return {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify({
-            results: results.map(r => ({
-              doc_id: r.doc_id,
-              chunks: r.chunks,
-              status: r.status,
-              external_id: r.external_id,
-            })),
-          }, null, 2),
-        },
-      ],
-    };
-  }
+  return {
+    content: [
+      {
+        type: 'text',
+        text: JSON.stringify({
+          results: results.map(r => ({
+            doc_id: r.doc_id,
+            chunks: r.chunks,
+            status: r.status,
+            external_id: r.external_id,
+          })),
+        }, null, 2),
+      },
+    ],
+  };
+}
 
-  private async handleDeleteDocuments(args: any): Promise<any> {
+async function handleDeleteDocuments(args: any, ingestManager: IngestManager): Promise<any> {
     const { doc_ids, external_ids } = args;
 
     if (!doc_ids && !external_ids) {
       throw new McpError(ErrorCode.InvalidParams, 'Either doc_ids or external_ids must be provided');
     }
 
-    const result = await this.ingestManager.deleteDocuments(doc_ids, external_ids);
+  const result = await ingestManager.deleteDocuments(doc_ids, external_ids);
 
-    return {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify({
-            deleted_doc_ids: result.deletedDocIds,
-            deleted_chunks: result.deletedChunks,
-          }, null, 2),
-        },
-      ],
-    };
-  }
+  return {
+    content: [
+      {
+        type: 'text',
+        text: JSON.stringify({
+          deleted_doc_ids: result.deletedDocIds,
+          deleted_chunks: result.deletedChunks,
+        }, null, 2),
+      },
+    ],
+  };
+}
 
-  private async handleListDocuments(args: any): Promise<any> {
+async function handleListDocuments(args: any, db: DatabaseManager): Promise<any> {
     const { page } = args || {};
     const { limit = 50, cursor } = page || {};
 
-    // Simple pagination for now - cursor not implemented
-    const documents = this.db.listDocuments(limit, 0);
+  // Simple pagination for now - cursor not implemented
+  const documents = db.listDocuments(limit, 0);
 
-    return {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify({
-            documents: documents.map(doc => ({
-              doc_id: doc.doc_id,
-              external_id: doc.external_id,
-              title: doc.title,
-              source: doc.source,
-              updated_at: doc.updated_at,
-            })),
-            next_cursor: documents.length === limit ? 'next' : undefined, // Simplified
-          }, null, 2),
-        },
-      ],
-    };
+  return {
+    content: [
+      {
+        type: 'text',
+        text: JSON.stringify({
+          documents: documents.map(doc => ({
+            doc_id: doc.doc_id,
+            external_id: doc.external_id,
+            title: doc.title,
+            source: doc.source,
+            updated_at: doc.updated_at,
+          })),
+          next_cursor: documents.length === limit ? 'next' : undefined, // Simplified
+        }, null, 2),
+      },
+    ],
+  };
+}
+
+class PocketMCPServer {
+  private components: ServerComponents;
+
+  constructor() {
+    this.components = createPocketMCPServer();
   }
+
+  private get server() { return this.components.server; }
+  private get db() { return this.components.db; }
+  private get embeddings() { return this.components.embeddings; }
+  private get ingestManager() { return this.components.ingestManager; }
+  private get watcher() { return this.components.watcher; }
 
   async start() {
     console.log('Starting PocketMCP server...');
@@ -426,6 +458,7 @@ class PocketMCPServer {
     }
 
     // Start MCP server
+    const { StdioServerTransport } = await import('@modelcontextprotocol/sdk/server/stdio.js');
     const transport = new StdioServerTransport();
     await this.server.connect(transport);
 
