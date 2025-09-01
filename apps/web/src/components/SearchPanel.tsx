@@ -37,6 +37,18 @@ export function SearchPanel() {
       const result = await apiClient.search(localQuery, topK, searchMode);
       setResults(result.matches);
       setLastTookMs(result.took_ms);
+      
+      // Show feedback if model was initialized or if fallback occurred
+      if (result.model_initialized) {
+        // Show a temporary success message that the model was initialized
+        setTimeout(() => {
+          setError('✅ Vector search model initialized successfully!');
+          setTimeout(() => setError(null), 3000);
+        }, 100);
+      } else if (result.requested_mode === 'vector' && result.mode === 'like') {
+        setError('⚠️ Vector search unavailable, used text search instead');
+        setTimeout(() => setError(null), 5000);
+      }
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Search failed');
       setResults([]);
@@ -122,17 +134,36 @@ export function SearchPanel() {
               className="btn-primary flex items-center space-x-2"
             >
               <Search className={`h-4 w-4 ${loading ? 'animate-pulse' : ''}`} />
-              <span>{loading ? 'Searching...' : 'Search'}</span>
+              <span>
+                {loading 
+                  ? (searchMode === 'vector' ? 'Initializing & Searching...' : 'Searching...') 
+                  : 'Search'
+                }
+              </span>
             </button>
           </div>
         </form>
 
         {/* Search Results */}
         {error && (
-          <div className="card mb-6 border-red-200 bg-red-50">
-            <div className="flex items-center space-x-2 text-red-600">
+          <div className={`card mb-6 ${
+            error.startsWith('✅') 
+              ? 'border-green-200 bg-green-50' 
+              : error.startsWith('⚠️')
+              ? 'border-yellow-200 bg-yellow-50'
+              : 'border-red-200 bg-red-50'
+          }`}>
+            <div className={`flex items-center space-x-2 ${
+              error.startsWith('✅') 
+                ? 'text-green-600' 
+                : error.startsWith('⚠️')
+                ? 'text-yellow-600'
+                : 'text-red-600'
+            }`}>
               <AlertCircle className="h-5 w-5" />
-              <span className="font-medium">Error:</span>
+              <span className="font-medium">
+                {error.startsWith('✅') ? 'Success:' : error.startsWith('⚠️') ? 'Warning:' : 'Error:'}
+              </span>
               <span>{error}</span>
             </div>
           </div>

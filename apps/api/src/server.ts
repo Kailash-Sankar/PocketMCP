@@ -3,6 +3,7 @@ import cors from 'cors';
 import { config } from 'dotenv';
 import { resolve } from 'path';
 import { ApiDatabaseManager } from './db.js';
+import { ApiEmbeddingManager } from './embeddings.js';
 
 // Load environment variables
 config({ path: [resolve('../../.env'), resolve('.env')] });
@@ -13,8 +14,9 @@ const BIND = process.env.API_BIND || '127.0.0.1';
 // Use path relative to workspace root
 const SQLITE_PATH = process.env.SQLITE_PATH || './data/index.db';
 
-// Initialize database manager
+// Initialize database manager and embedding manager
 const dbManager = new ApiDatabaseManager(SQLITE_PATH);
+const embeddingManager = new ApiEmbeddingManager();
 
 // Middleware
 app.use(cors());
@@ -22,7 +24,24 @@ app.use(express.json());
 
 // Health check
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  res.json({ 
+    status: 'ok', 
+    timestamp: new Date().toISOString(),
+    embedding_ready: embeddingManager.isReady()
+  });
+});
+
+// Initialize embedding model
+app.post('/api/embeddings/init', async (req, res) => {
+  try {
+    await embeddingManager.initialize();
+    res.json({ status: 'initialized', ready: embeddingManager.isReady() });
+  } catch (error) {
+    res.status(500).json({ 
+      error: 'Failed to initialize embedding model', 
+      message: error instanceof Error ? error.message : 'Unknown error' 
+    });
+  }
 });
 
 // Database diagnostics
@@ -49,13 +68,29 @@ app.post('/api/search', async (req, res) => {
 
     const startTime = Date.now();
     let matches;
+    let modelInitialized = false;
+    let actualMode = mode;
 
     if (mode === 'like') {
       matches = await dbManager.searchLike(query, top_k);
     } else if (mode === 'vector') {
-      // For now, we'll use LIKE search as fallback
-      // TODO: Implement proper vector search with embeddings
-      matches = await dbManager.searchLike(query, top_k);
+      try {
+        // Auto-initialize embedding model if not ready
+        if (!embeddingManager.isReady()) {
+          console.log('Embedding model not ready, initializing automatically...');
+          await embeddingManager.initialize();
+          modelInitialized = true;
+        }
+        
+        // Generate embedding for the query
+        const queryEmbedding = await embeddingManager.embedSingle(query);
+        matches = await dbManager.searchVector(queryEmbedding, top_k);
+      } catch (embeddingError) {
+        console.warn('Vector search failed, falling back to LIKE search:', embeddingError);
+        // Fallback to LIKE search if embedding fails
+        matches = await dbManager.searchLike(query, top_k);
+        actualMode = 'like'; // Indicate we fell back to LIKE search
+      }
     } else {
       return res.status(400).json({ error: 'Invalid search mode. Use "like" or "vector"' });
     }
@@ -66,8 +101,10 @@ app.post('/api/search', async (req, res) => {
       matches,
       took_ms: tookMs,
       query,
-      mode,
-      total: matches.length
+      mode: actualMode,
+      requested_mode: mode,
+      total: matches.length,
+      model_initialized: modelInitialized
     });
   } catch (error) {
     res.status(500).json({ 

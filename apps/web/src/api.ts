@@ -41,7 +41,9 @@ class ApiClient {
     took_ms: number;
     query: string;
     mode: string;
+    requested_mode?: string;
     total: number;
+    model_initialized?: boolean;
   }> {
     return this.request('/api/search', {
       method: 'POST',
