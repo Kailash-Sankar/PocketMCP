@@ -2,7 +2,7 @@
 
 **PocketMCP** is a lightweight, local-first MCP (Model Context Protocol) server that automatically watches folders, chunks and embeds files locally using Transformers.js with MiniLM, stores vectors in SQLite + sqlite-vec, and exposes semantic search capabilities to VS Code and Cursor. Designed for small machines (I'm running on an Intel N100 with 16GB RAM) with zero external dependencies after initial model download.
 
-## 🌟 Features
+## Features
 
 - **🔍 Semantic Search**: Find content by meaning, not just keywords
 - **📁 Auto-Ingestion**: Watches folders and automatically processes new/changed files
@@ -16,7 +16,7 @@
 - **📊 Smart Segmentation**: Page-aware PDF processing and section-aware DOCX handling
 - **🛡️ Robust Error Handling**: Graceful handling of encrypted, corrupted, or oversized files
 
-## 🏗️ Architecture
+## Architecture
 
 ```mermaid
 flowchart TD
@@ -66,7 +66,7 @@ flowchart TD
     class H,I storage
 ```
 
-## 📊 Performance & Limits
+## Performance & Limits
 
 - **Sweet spot**: 10K-100K chunks on modest hardware
 - **Query latency**: Sub-100ms for `top_k <= 10` on typical corpora
@@ -81,7 +81,7 @@ flowchart TD
 ![Integration - stdio](docs/screenshots/int-1.png)
 ![Integration - http](docs/screenshots/int-2.png)
 
-## 📋 Table of Contents
+## Table of Contents
 
 - [Features](#-features)
 - [Architecture](#️-architecture)
@@ -95,7 +95,7 @@ flowchart TD
 - [Deployment](#-deployment-1)
 - [Troubleshooting](#-troubleshooting)
 
-## 🚀 Quick Start
+## Quick Start
 
 ### 1. Installation
 
@@ -153,7 +153,7 @@ pnpm build && pnpm start
 
 On first run, the server will download the MiniLM model (~100MB) and then process any files in your watch directory.
 
-## 🌐 Web Tester
+## Web Tester
 
 PocketMCP includes a comprehensive web interface for testing and validation.
 
@@ -332,7 +332,7 @@ PocketMCP provides resource URIs for accessing specific chunks:
 - **Format**: `mcp+doc://<doc_id>#<chunk_id>`
 - **Returns**: Complete chunk data including text, offsets, and metadata
 
-## ⚙️ Configuration
+## Configuration
 
 ### Environment Variables
 
@@ -397,7 +397,7 @@ PocketMCP provides resource URIs for accessing specific chunks:
 - Large files exceeding limits are marked as `too_large`
 - Scanned PDFs requiring OCR are marked as `needs_ocr`
 
-## 🛠️ Development
+## Development
 
 ### Project Structure
 
@@ -452,7 +452,7 @@ pnpm start
 curl http://127.0.0.1:5174/health
 ```
 
-## 🚀 Deployment
+## Deployment
 
 ### Docker (Recommended)
 
@@ -549,7 +549,7 @@ pnpm start
 - **API Server**: `http://localhost:5174`
 - **Web UI**: `http://localhost:5173`
 
-## 🔧 Troubleshooting
+## Troubleshooting
 
 ### Model Download Issues
 If the embedding model fails to download:
@@ -589,11 +589,11 @@ If `sqlite-vec` fails to load:
 **"Database file does not exist"**
 - Run the MCP server first to create the database, or check the `SQLITE_PATH`
 
-## 📄 License
+## License
 
 MIT License - see LICENSE file for details.
 
-## 🤝 Contributing
+## Contributing
 
 1. Fork the repository
 2. Create a feature branch
@@ -601,7 +601,7 @@ MIT License - see LICENSE file for details.
 4. Add tests if applicable
 5. Submit a pull request
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 - **sqlite-vec** for fast vector similarity search
 - **Transformers.js** for local embedding generation
