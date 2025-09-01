@@ -16,6 +16,64 @@
 - **📊 Smart Segmentation**: Page-aware PDF processing and section-aware DOCX handling
 - **🛡️ Robust Error Handling**: Graceful handling of encrypted, corrupted, or oversized files
 
+## 🏗️ Architecture
+
+```mermaid
+flowchart TD
+    subgraph "MCP Clients"
+        A[VS Code] 
+        B[Cursor]
+    end
+    
+    subgraph "Web Interface"
+        W1[React Frontend<br/>:5173]
+        W2[Express API<br/>:5174]
+    end
+    
+    subgraph "PocketMCP Server"
+        C[MCP Server<br/>stdio transport]
+        D[File Watcher<br/>chokidar]
+        E[Text Chunker<br/>~1000 chars]
+        F[Embeddings<br/>Transformers.js<br/>MiniLM-L6-v2]
+        G[SQLite + sqlite-vec<br/>Vector Database]
+    end
+    
+    subgraph "File System"
+        H[Watch Directory<br/>./kb/]
+        I[Data Directory<br/>./data/]
+    end
+    
+    A -.->|MCP Tools| C
+    B -.->|MCP Tools| C
+    W1 -->|HTTP API| W2
+    W2 -->|Database Access| G
+    C --> D
+    D -->|File Changes| E
+    E -->|Text Chunks| F
+    F -->|384-dim Vectors| G
+    G -.->|Search Results| C
+    D -.->|Monitors| H
+    G -.->|Stores in| I
+    
+    classDef mcpClient fill:#e1f5fe
+    classDef webInterface fill:#fff3e0
+    classDef server fill:#f3e5f5
+    classDef storage fill:#e8f5e8
+    
+    class A,B mcpClient
+    class W1,W2 webInterface
+    class C,D,E,F,G server
+    class H,I storage
+```
+
+## 📊 Performance & Limits
+
+- **Sweet spot**: 10K-100K chunks on modest hardware
+- **Query latency**: Sub-100ms for `top_k <= 10` on typical corpora
+- **Memory usage**: ~100MB for model + minimal overhead per document
+- **Concurrency**: Limited to 3 simultaneous file operations by default
+- **File size limit**: 50MB per file (configurable)
+
 ## Screenshots
 
 ![Web Server - Stats](docs/screenshots/web-server-1.png)
@@ -914,64 +972,6 @@ journalctl -u pocketmcp -f  # systemd
 pm2 logs pocketmcp          # PM2
 ```
 
-## 🏗️ Architecture
-
-```mermaid
-flowchart TD
-    subgraph "MCP Clients"
-        A[VS Code] 
-        B[Cursor]
-    end
-    
-    subgraph "Web Interface"
-        W1[React Frontend<br/>:5173]
-        W2[Express API<br/>:5174]
-    end
-    
-    subgraph "PocketMCP Server"
-        C[MCP Server<br/>stdio transport]
-        D[File Watcher<br/>chokidar]
-        E[Text Chunker<br/>~1000 chars]
-        F[Embeddings<br/>Transformers.js<br/>MiniLM-L6-v2]
-        G[SQLite + sqlite-vec<br/>Vector Database]
-    end
-    
-    subgraph "File System"
-        H[Watch Directory<br/>./kb/]
-        I[Data Directory<br/>./data/]
-    end
-    
-    A -.->|MCP Tools| C
-    B -.->|MCP Tools| C
-    W1 -->|HTTP API| W2
-    W2 -->|Database Access| G
-    C --> D
-    D -->|File Changes| E
-    E -->|Text Chunks| F
-    F -->|384-dim Vectors| G
-    G -.->|Search Results| C
-    D -.->|Monitors| H
-    G -.->|Stores in| I
-    
-    classDef mcpClient fill:#e1f5fe
-    classDef webInterface fill:#fff3e0
-    classDef server fill:#f3e5f5
-    classDef storage fill:#e8f5e8
-    
-    class A,B mcpClient
-    class W1,W2 webInterface
-    class C,D,E,F,G server
-    class H,I storage
-```
-
-## 📊 Performance & Limits
-
-- **Sweet spot**: 10K-100K chunks on modest hardware
-- **Query latency**: Sub-100ms for `top_k <= 10` on typical corpora
-- **Memory usage**: ~100MB for model + minimal overhead per document
-- **Concurrency**: Limited to 3 simultaneous file operations by default
-- **File size limit**: 50MB per file (configurable)
-
 ## 🔧 Troubleshooting
 
 ### Model Download Issues
@@ -1011,51 +1011,6 @@ If `sqlite-vec` fails to load:
 
 **"Database file does not exist"**
 - Run the MCP server first to create the database, or check the `SQLITE_PATH`
-
-## ✅ Docker Deployment Verification
-
-Use this checklist to verify your Docker deployment is working correctly:
-
-### Pre-Deployment Checklist
-- [ ] Docker and Docker Compose installed
-- [ ] GitHub Container Registry access configured (if using GHCR)
-- [ ] Sufficient disk space for volumes (minimum 2GB recommended)
-- [ ] Port 8001 available on host system
-
-### Build Verification
-- [ ] Multi-arch image builds successfully for both linux/amd64 and linux/arm64
-- [ ] GitHub Actions workflow completes without errors
-- [ ] Image is published to container registry
-
-### Runtime Verification
-- [ ] Container starts successfully
-- [ ] Health check endpoint returns `{"status":"ok"}` at `http://HOST:8001/health`
-- [ ] Model files download and cache in `/app/.cache` volume
-- [ ] Database initializes in `/app/data` volume
-- [ ] File watching works when documents added to `/app/kb` volume
-
-### Data Persistence Verification
-- [ ] Database persists across container restarts
-- [ ] Knowledge base files persist across container restarts  
-- [ ] Model cache persists across container restarts (improves startup time)
-
-### Portainer Integration Verification
-- [ ] Container shows "healthy" status in Portainer
-- [ ] Logs are accessible through Portainer interface
-- [ ] Volume management works through Portainer
-- [ ] Container can be upgraded by changing image tag
-
-### Upgrade Verification
-- [ ] Upgrading from `vX.Y.Z` to `vX.Y.(Z+1)` preserves all data
-- [ ] Upgrading preserves knowledge base documents
-- [ ] Health check passes after upgrade
-- [ ] MCP functionality works after upgrade
-
-### Performance Verification
-- [ ] Memory usage stays within configured limits (default: 2GB max)
-- [ ] CPU usage is reasonable during file processing
-- [ ] Search queries respond within acceptable time (typically <100ms)
-- [ ] File ingestion completes without timeout errors
 
 ## 📄 License
 
