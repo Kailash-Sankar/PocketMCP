@@ -83,14 +83,17 @@ flowchart TD
 
 ## 📋 Table of Contents
 
-- [Quick Start](#quick-start)
-- [Web Tester](#web-tester)
-- [MCP Client Integration](#mcp-client-integration)
-- [API Reference](#api-reference)
-- [Configuration](#configuration)
-- [Development](#development)
-- [Architecture](#architecture)
-- [Troubleshooting](#troubleshooting)
+- [Features](#-features)
+- [Architecture](#️-architecture)
+- [Performance & Limits](#-performance--limits)
+- [Quick Start](#-quick-start)
+- [Web Tester](#-web-tester)
+- [MCP Client Integration](#-mcp-client-integration)
+- [API Reference](#-api-reference)
+- [Configuration](#️-configuration)
+- [Development](#️-development)
+- [Deployment](#-deployment-1)
+- [Troubleshooting](#-troubleshooting)
 
 ## 🚀 Quick Start
 
@@ -140,37 +143,12 @@ echo "This is a sample document for testing PocketMCP." >> kb/test.md
 
 ### 4. Start the Server
 
-**Option A: MCP Server Only**
-
-PocketMCP now supports multiple transport modes:
-
 ```bash
-# Development - MCP server with both transports + file watching
-pnpm dev:mcp
-
-# Production - MCP server with both transports + file watching
-pnpm build && pnpm start
-```
-
-**Transport Modes:**
-- **`stdio`**: Standard MCP protocol over stdin/stdout (for VS Code, Cursor)
-- **`http`**: Streamable HTTP transport with CORS support (for web clients, LAN access)
-- **`both`**: Run both transports simultaneously (recommended for production)
-
-**HTTP Transport Endpoints:**
-- **MCP**: `http://0.0.0.0:8001/mcp` (Streamable HTTP MCP protocol)
-- **Health**: `http://0.0.0.0:8001/health` (JSON health check)
-
-**Environment Variables:**
-- `TRANSPORT`: `stdio` | `http` | `both` (default: `both`)
-- `HTTP_HOST`: HTTP bind address (default: `0.0.0.0`)
-- `HTTP_PORT`: HTTP port (default: `8001`)
-- `LOG_LEVEL`: `debug` | `info` | `warn` | `error` (default: `info`)
-
-**Option B: Web Interface + API Server**
-```bash
-# Start web interface and API server for testing
+# Development - MCP server + web interface
 pnpm dev
+
+# Production - MCP server only
+pnpm build && pnpm start
 ```
 
 On first run, the server will download the MiniLM model (~100MB) and then process any files in your watch directory.
@@ -239,14 +217,10 @@ curl http://127.0.0.1:5174/api/db/diag | jq .
 
 ## 🔧 MCP Client Integration
 
-PocketMCP supports both **stdio** and **HTTP** transports for maximum compatibility.
-
-### Option A: Stdio Transport (Recommended for Desktop Clients)
-
-**Cursor Integration:**
+### Cursor Integration
 
 1. Open **Cursor Settings** → **MCP**
-2. Add a new server with these settings:
+2. Add a new server:
 
 ```json
 {
@@ -256,15 +230,14 @@ PocketMCP supports both **stdio** and **HTTP** transports for maximum compatibil
   "env": {
     "TRANSPORT": "stdio",
     "SQLITE_PATH": "./data/index.db",
-    "WATCH_DIR": "./kb",
-    "MODEL_ID": "Xenova/all-MiniLM-L6-v2"
+    "WATCH_DIR": "./kb"
   }
 }
 ```
 
-**VS Code Integration:**
+### VS Code Integration
 
-For VS Code clients that support MCP, add to your settings:
+Add to your MCP settings:
 
 ```json
 {
@@ -276,110 +249,26 @@ For VS Code clients that support MCP, add to your settings:
       "env": {
         "TRANSPORT": "stdio",
         "SQLITE_PATH": "./data/index.db",
-        "WATCH_DIR": "./kb",
-        "MODEL_ID": "Xenova/all-MiniLM-L6-v2"
+        "WATCH_DIR": "./kb"
       }
     }
   }
 }
 ```
 
-**Production: Direct Node Execution**
+### HTTP Transport (Web Clients)
 
-```json
-{
-  "command": "node",
-  "args": ["dist/cli.js"],
-  "cwd": "/path/to/PocketMCP",
-  "env": {
-    "TRANSPORT": "stdio",
-    "SQLITE_PATH": "./data/index.db",
-    "WATCH_DIR": "./kb"
-  }
-}
-```
-
-### Option B: HTTP Transport (For Web Clients & Remote Access)
-
-**Start PocketMCP Server:**
-
-First, start PocketMCP with HTTP transport enabled:
-
-```bash
-# Development
-pnpm dev:mcp
-
-# Or production
-pnpm build && pnpm start
-
-# Or HTTP only
-TRANSPORT=http pnpm dev:mcp
-```
-
-**MCP Client Configuration (HTTP):**
-
-For MCP clients that support HTTP transport, configure the connection:
+For web clients or remote access:
 
 ```json
 {
   "mcpServers": {
     "pocketmcp": {
       "transport": "http",
-      "url": "http://localhost:8001/mcp",
-      "headers": {
-        "Content-Type": "application/json"
-      }
+      "url": "http://localhost:8001/mcp"
     }
   }
 }
-```
-
-**Web Client Integration:**
-
-For web applications using MCP over HTTP:
-
-```javascript
-// Example: Connect to PocketMCP via HTTP
-const mcpClient = new MCPClient({
-  transport: 'http',
-  url: 'http://localhost:8001/mcp',
-  headers: {
-    'Content-Type': 'application/json'
-  }
-});
-
-// Initialize connection
-await mcpClient.connect();
-
-// Use MCP tools
-const searchResults = await mcpClient.callTool('search', {
-  query: 'machine learning',
-  top_k: 5
-});
-```
-
-**Remote/LAN Access:**
-
-To access PocketMCP from other machines on your network:
-
-```bash
-# Start with network binding
-HTTP_HOST=0.0.0.0 HTTP_PORT=8001 pnpm dev:mcp
-
-# Then connect from other machines using your server's IP
-# http://192.168.1.100:8001/mcp
-```
-
-**Health Check:**
-
-Test the HTTP transport:
-
-```bash
-# Health check
-curl http://localhost:8001/health
-
-# Expected response
-{"status":"ok","timestamp":"2024-01-01T00:00:00.000Z"}
 ```
 
 ## 📚 API Reference
@@ -479,54 +368,34 @@ PocketMCP provides resource URIs for accessing specific chunks:
 | `pnpm setup` | Create .env from template |
 | `pnpm clean` | Clean build artifacts and database |
 
-### Watch Directory Notes
+### Watch Directory
 
 - **`WATCH_DIR` is optional** - if not set, only manual document upserts work
-- **Choose any directory** - `./kb` is just a convention, use whatever makes sense
-- **Supported files**: `.md`, `.txt`, `.pdf`, `.docx` (configurable via FileIngestManager options)
+- **Supported files**: `.md`, `.txt`, `.pdf`, `.docx`
 - **File filtering**: Automatically ignores temp files, `.DS_Store`, `node_modules`, etc.
 - **Nested directories**: Recursively watches all subdirectories
 
-### Document Processing Pipeline
+### Document Processing
 
-PocketMCP uses a three-tier processing model:
+**Processing Pipeline:** Documents → Segments → Chunks
 
-**Documents → Segments → Chunks**
+1. **Documents**: Top-level files with metadata
+2. **Segments**: Logical divisions (PDF pages, DOCX sections, etc.)
+3. **Chunks**: Text pieces optimized for embedding (~1000 chars)
 
-1. **Documents**: Top-level files with metadata (type, size, status, etc.)
-2. **Segments**: Logical divisions within documents:
-   - **PDF**: One segment per page
-   - **DOCX**: One segment per document (or per heading section if enabled)
-   - **Text/Markdown**: Single segment per document
-3. **Chunks**: Text pieces optimized for embedding and search
-
-**Processing Status Tracking:**
-- `ok`: Successfully processed and indexed
-- `skipped`: File was skipped (encrypted, unsupported format)
-- `needs_ocr`: PDF requires OCR processing (not implemented)
-- `too_large`: File exceeds size/page limits
-- `error`: Processing failed due to an error
+**Status Types:** `ok`, `skipped`, `needs_ocr`, `too_large`, `error`
 
 ### Supported File Types
 
-Currently supports:
 - **Markdown** (`.md`)
 - **Plain text** (`.txt`)
-- **PDF** (`.pdf`) - Text-based PDFs only, no OCR support
+- **PDF** (`.pdf`) - Text-based only, no OCR
 - **DOCX** (`.docx`) - Microsoft Word documents
 
-**PDF Processing Notes:**
-- Only text-based PDFs are supported (no OCR for scanned documents)
-- PDFs with insufficient text content will be marked as `needs_ocr` and skipped
-- Encrypted or password-protected PDFs will be marked as `skipped`
-- Large PDFs exceeding the page limit will be marked as `too_large`
-
-**DOCX Processing Notes:**
-- Supports modern Microsoft Word documents (.docx format only, not legacy .doc)
-- Can optionally split documents by headings (configurable via `DOCX_SPLIT_ON_HEADINGS`)
-- Large files exceeding the size limit will be marked as `too_large`
-
-To add more file types, modify the `supportedExtensions` in the `FileIngestManager` configuration.
+**Notes:**
+- Encrypted/password-protected files are skipped
+- Large files exceeding limits are marked as `too_large`
+- Scanned PDFs requiring OCR are marked as `needs_ocr`
 
 ## 🛠️ Development
 
@@ -567,55 +436,29 @@ PocketMCP/                    # Monorepo root
 ### Development Commands
 
 ```bash
-# Install dependencies
+# Install and setup
 pnpm install
+pnpm setup
 
-# Run MCP server in development mode (hot reload)
-pnpm dev:mcp
+# Development
+pnpm dev          # Web interface + API
+pnpm dev:mcp      # MCP server only
 
-# Run web tester in development mode
-pnpm dev
-
-# Build for production
+# Production
 pnpm build
-
-# Run production build
 pnpm start
 
-# Run with custom environment
-WATCH_DIR=./my-docs CHUNK_SIZE=500 pnpm dev:mcp
-```
-
-### Testing
-
-```bash
-# Test web tester functionality
-./test-web-tester.sh
-
-# Manual API testing
+# Testing
 curl http://127.0.0.1:5174/health
-curl http://127.0.0.1:5174/api/db/diag
 ```
 
-## 🚀 Production Deployment
+## 🚀 Deployment
 
-### Docker Deployment (Recommended)
+### Docker (Recommended)
 
-PocketMCP is containerized and ready for production deployment with Docker and Portainer. The Docker setup runs all components together in a single container:
-
-**🏗️ Multi-Service Architecture:**
-- **MCP Server** (port 8001): HTTP transport for MCP protocol
-- **API Server** (port 5174): Database operations and diagnostics  
-- **Web UI** (port 5173): Interactive web interface for testing and management
-- **Combined Health Check**: Monitors all services via `/health` endpoint
-
-#### Quick Start with Docker
-
+**Quick Start:**
 ```bash
-# Pull the latest image
-docker pull ghcr.io/kailash-sankar/pocketmcp:latest
-
-# Run with all services (MCP + API + Web UI)
+# Pull and run with all services (MCP + API + Web UI)
 docker run -d \
   --name pocketmcp \
   --restart unless-stopped \
@@ -629,121 +472,29 @@ docker run -d \
 ```
 
 **Access Points:**
-- **🔧 MCP Server**: `http://localhost:8001` (HTTP transport + health check)
-- **📊 API Server**: `http://localhost:5174` (Database API + diagnostics)  
-- **🌐 Web UI**: `http://localhost:5173` (Interactive web interface)
-- **❤️ Health Check**: `http://localhost:5173/health` (Combined service status)
+- **MCP Server**: `http://localhost:8001`
+- **API Server**: `http://localhost:5174`  
+- **Web UI**: `http://localhost:5173`
 
-#### Docker Compose
-
+**Docker Compose:**
 ```bash
-# Clone the repository
 git clone https://github.com/kailash-sankar/PocketMCP.git
 cd PocketMCP
-
-# Copy and customize environment file
 cp .env.sample .env
-
-# Start with Docker Compose
 docker-compose up -d
-
-# View logs
-docker-compose logs -f pocketmcp
-
-# Stop
-docker-compose down
 ```
 
-### Docker Operations
-
-#### Building Images
-
-**Local Build:**
-```bash
-# Build for current platform
-docker build -t pocketmcp:local .
-
-# Build multi-arch (requires buildx)
-docker buildx build --platform linux/amd64,linux/arm64 -t pocketmcp:multi-arch .
-```
-
-**GitHub Actions Build:**
-```bash
-# Tag and push to trigger automated build
-git tag v1.0.0
-git push origin v1.0.0
-
-# Manual trigger via GitHub Actions UI
-# Go to Actions → Build and Release Docker Images → Run workflow
-```
-
-#### Image Registry
-
-**GitHub Container Registry (GHCR):**
-```bash
-# Login to GHCR
-echo $GITHUB_TOKEN | docker login ghcr.io -u kailash-sankar --password-stdin
-
-# Tag for GHCR
-docker tag pocketmcp:local ghcr.io/kailash-sankar/pocketmcp:v1.0.0
-
-# Push to GHCR
-docker push ghcr.io/kailash-sankar/pocketmcp:v1.0.0
-```
-
-#### Tag Strategy
-
-| Tag Pattern | Purpose | Example | Recommended For |
-|-------------|---------|---------|-----------------|
-| `vX.Y.Z` | Exact version | `v1.2.3` | Production pinning |
-| `vX.Y` | Minor stream | `v1.2` | Auto-updates within minor |
-| `vX` | Major stream | `v1` | Auto-updates within major |
-| `latest` | Latest release | `latest` | Development/testing |
-| `main-SHA` | Commit-based | `main-a1b2c3d` | CI/CD pipelines |
-
-**Portainer Tag Selection:**
-- **Stable Production**: Use exact version tags (`v1.2.3`)
-- **Auto-Updates**: Use minor version tags (`v1.2`) for automatic patch updates
-- **Development**: Use `latest` for newest features
-
-#### Volume Management
-
-**Critical Volumes:**
-```bash
-# Database persistence (CRITICAL - contains all your data)
-/app/data → SQLite database, must be backed up
-
-# Knowledge base (your documents)
-/app/kb → Source documents, can be repopulated
-
-# Model cache (performance optimization)
-/app/.cache → Downloaded models, can be recreated
-```
-
-**Backup Strategy:**
-```bash
-# Backup database
-docker cp pocketmcp:/app/data/index.db ./backup-$(date +%Y%m%d).db
-
-# Backup with Docker Compose
-docker-compose exec pocketmcp cp /app/data/index.db /app/data/backup-$(date +%Y%m%d).db
-```
-
-### Portainer Setup
-
-#### Container Creation
-
-**Option 1: Portainer Stacks (Recommended)**
+### Portainer Stacks
 
 1. Go to **Stacks** → **Add stack**
 2. Name: `pocketmcp`
-3. Paste this docker-compose content:
+3. Paste this configuration:
 
 ```yaml
 version: '3.8'
 services:
   pocketmcp:
-    image: ghcr.io/kailash-sankar/pocketmcp:v1.0
+    image: ghcr.io/kailash-sankar/pocketmcp:latest
     container_name: pocketmcp
     restart: unless-stopped
     ports:
@@ -757,17 +508,8 @@ services:
     environment:
       - NODE_ENV=production
       - TRANSPORT=both
-      - HTTP_HOST=0.0.0.0
-      - HTTP_PORT=8001
-      - API_PORT=5174
-      - WEB_PORT=5173
-      - LOG_LEVEL=info
       - SQLITE_PATH=/app/data/index.db
       - WATCH_DIR=/app/kb
-      - MODEL_ID=Xenova/all-MiniLM-L6-v2
-      - CHUNK_SIZE=1000
-      - CHUNK_OVERLAP=120
-      - VERBOSE_LOGGING=false
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5173/health"]
       interval: 30s
@@ -781,196 +523,31 @@ volumes:
   pocketmcp_cache:
 ```
 
-**Option 2: Individual Container**
-
-1. Go to **Containers** → **Add container**
-2. Fill in the configuration:
-
-| Setting | Value |
-|---------|-------|
-| **Name** | `pocketmcp` |
-| **Image** | `ghcr.io/kailash-sankar/pocketmcp:v1.0` |
-| **Port mapping** | `8001:8001, 5174:5174, 5173:5173` |
-| **Restart policy** | `Unless stopped` |
-
-#### Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `NODE_ENV` | `production` | Runtime environment |
-| `TRANSPORT` | `both` | MCP transport mode (`stdio`/`http`/`both`) |
-| `HTTP_HOST` | `0.0.0.0` | HTTP server bind address |
-| `HTTP_PORT` | `8001` | MCP server port |
-| `API_PORT` | `5174` | Web API server port |
-| `WEB_PORT` | `5173` | Web UI server port |
-| `LOG_LEVEL` | `info` | Logging level (`debug`/`info`/`warn`/`error`) |
-| `SQLITE_PATH` | `/app/data/index.db` | Database file path |
-| `WATCH_DIR` | `/app/kb` | Directory to watch for changes |
-| `MODEL_ID` | `Xenova/all-MiniLM-L6-v2` | Hugging Face embedding model |
-| `CHUNK_SIZE` | `1000` | Text chunk size in characters |
-| `CHUNK_OVERLAP` | `120` | Overlap between chunks |
-| `MAX_CONCURRENT_FILES` | `5` | Max files processed simultaneously |
-| `VERBOSE_LOGGING` | `false` | Enable detailed logging |
-| `HF_TOKEN` | _(optional)_ | Hugging Face API token |
-| `HF_CACHE_DIR` | `/app/.cache` | Model cache directory |
-
-#### Volume Mappings
-
-| Container Path | Purpose | Host Path Example | Required |
-|----------------|---------|-------------------|----------|
-| `/app/data` | **Database storage** | `/opt/pocketmcp/data` | **Yes** |
-| `/app/kb` | **Knowledge base** | `/opt/pocketmcp/kb` | **Yes** |
-| `/app/.cache` | **Model cache** | `/opt/pocketmcp/cache` | Recommended |
-
-**Volume Setup in Portainer:**
-1. **Volumes** tab → **Add volume**
-2. Create three volumes:
-   - `pocketmcp_data` (database)
-   - `pocketmcp_kb` (documents)  
-   - `pocketmcp_cache` (models)
-
-#### Port Configuration
-
-| Host Port | Container Port | Protocol | Purpose |
-|-----------|----------------|----------|---------|
-| `8001` | `8001` | TCP | MCP Server (HTTP transport) |
-| `5174` | `5174` | TCP | Web API Server (database operations) |
-| `5173` | `5173` | TCP | Web UI Server (interactive interface) |
-
-#### Health Check Configuration
-
-The container includes a built-in health check that monitors all services via the combined `/health` endpoint:
-
-- **Test Command**: `curl -f http://localhost:5173/health`
-- **Monitors**: MCP Server, API Server, and Web UI
-- **Interval**: 30 seconds
-- **Timeout**: 10 seconds  
-- **Start Period**: 60 seconds (allows model download)
-- **Retries**: 3
-
-**Health Response Format:**
-```json
-{
-  "status": "ok",
-  "timestamp": "2024-01-01T00:00:00.000Z",
-  "services": {
-    "mcp": "ok",
-    "api": "ok", 
-    "web": "ok"
-  }
-}
-```
-
-#### Resource Limits (Recommended)
-
-| Resource | Limit | Reservation |
-|----------|-------|-------------|
-| **Memory** | 2GB | 512MB |
-| **CPU** | 1.0 cores | 0.25 cores |
-
-#### Upgrading
-
-**Rolling Updates:**
-1. **Stacks**: Edit stack → Change image tag → **Update the stack**
-2. **Containers**: **Recreate** container with new image tag
-
-**Version Pinning vs Auto-Updates:**
-- **Pin to exact version**: `ghcr.io/kailash-sankar/pocketmcp:v1.2.3`
-- **Auto-update patches**: `ghcr.io/kailash-sankar/pocketmcp:v1.2`
-- **Auto-update minor**: `ghcr.io/kailash-sankar/pocketmcp:v1`
-
-#### Troubleshooting
-
-**Container won't start:**
-- Check logs in Portainer: **Containers** → **pocketmcp** → **Logs**
-- Verify volume permissions
-- Ensure ports aren't conflicting
-
-**Health check failing:**
-- Wait 60+ seconds for initial model download
-- Check individual services:
-  - MCP Server: `curl http://HOST_IP:8001/health`
-  - API Server: `curl http://HOST_IP:5174/health`
-  - Web UI: `curl http://HOST_IP:5173/health`
-- Review container logs for specific service errors
-
-**Performance issues:**
-- Increase memory limit if model loading fails
-- Reduce `CHUNK_SIZE` for lower memory usage
-- Check disk space for volumes
-
-### systemd Service (Linux)
-
-Create `/etc/systemd/system/pocketmcp.service`:
-
-```ini
-[Unit]
-Description=PocketMCP Server
-After=network.target
-
-[Service]
-Type=simple
-User=pocketmcp
-WorkingDirectory=/opt/pocketmcp
-Environment=NODE_ENV=production
-Environment=TRANSPORT=both
-Environment=HTTP_HOST=0.0.0.0
-Environment=HTTP_PORT=8001
-Environment=SQLITE_PATH=/opt/pocketmcp/data/index.db
-Environment=WATCH_DIR=/opt/pocketmcp/kb
-ExecStart=/usr/bin/node dist/cli.js
-Restart=always
-RestartSec=10
-StandardOutput=journal
-StandardError=journal
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Enable and start:
-```bash
-sudo systemctl enable pocketmcp
-sudo systemctl start pocketmcp
-sudo systemctl status pocketmcp
-```
-
-### Docker Deployment
-
-```dockerfile
-FROM node:18-alpine
-
-WORKDIR /app
-COPY package*.json ./
-RUN npm install --production
-
-COPY dist/ ./dist/
-COPY data/ ./data/
-COPY kb/ ./kb/
-
-EXPOSE 8000
-
-ENV NODE_ENV=production
-ENV TRANSPORT=both
-ENV HTTP_HOST=0.0.0.0
-ENV HTTP_PORT=8001
-
-CMD ["node", "dist/cli.js"]
-```
-
-### Health Monitoring
+### Direct Installation
 
 ```bash
-# Health check endpoint
-curl http://localhost:8001/health
+# Clone and setup
+git clone https://github.com/kailash-sankar/PocketMCP.git
+cd PocketMCP
+pnpm install
+pnpm setup
 
-# Expected response
-{"status":"ok","timestamp":"2024-01-01T00:00:00.000Z"}
+# Configure environment
+cp .env.sample .env
+# Edit .env with your settings
 
-# Log monitoring
-journalctl -u pocketmcp -f  # systemd
-pm2 logs pocketmcp          # PM2
+# Create content directory
+mkdir -p kb
+
+# Build and start
+pnpm build
+pnpm start
 ```
+
+**Access Points:**
+- **MCP Server**: `http://localhost:8001`
+- **API Server**: `http://localhost:5174`
+- **Web UI**: `http://localhost:5173`
 
 ## 🔧 Troubleshooting
 
